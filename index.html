@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026 九合一選舉預測大賽｜得票率精準對決</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container header-inner">
+      <div>
+        <p class="eyebrow">2026 TAIWAN LOCAL ELECTIONS</p>
+        <h1>2026 九合一選舉預測大賽</h1>
+        <p class="subtitle">預測誰當選 + 預估得票率，與實際結果誤差越小、分數越高！</p>
+      </div>
+      <div class="header-actions">
+        <span id="storage-badge" class="badge badge-local" aria-live="polite">連線偵測中...</span>
+        <button type="button" id="open-guide-btn" class="btn btn-outline">計分規則與 Firebase 設定</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="main-nav" aria-label="主要功能切換">
+    <div class="container nav-inner">
+      <button type="button" class="nav-btn" data-view="predict" aria-current="page">
+        1. 我要預測
+      </button>
+      <button type="button" class="nav-btn" data-view="results">
+        2. 開票結果輸入（試玩 / 當天）
+      </button>
+      <button type="button" class="nav-btn" data-view="leaderboard">
+        3. 排行榜與誤差分析
+      </button>
+    </div>
+  </nav>
+
+  <main class="container main-content">
+    <!-- 檢視 1：我要預測 -->
+    <section id="view-predict" class="view-section" aria-labelledby="predict-heading">
+      <div class="section-header">
+        <div>
+          <h2 id="predict-heading">填寫你的 2026 縣市長預測</h2>
+          <p class="section-desc">選擇每個直轄市的當選人，並輸入各候選人預估得票率（總和需為 100%）。</p>
+        </div>
+        <div class="quick-actions">
+          <button type="button" id="fill-sample-predict-btn" class="btn btn-secondary">帶入範例預測</button>
+        </div>
+      </div>
+
+      <form id="predict-form" aria-labelledby="predict-heading" novalidate>
+        <div class="player-card">
+          <div class="field">
+            <label for="player-nickname">玩家暱稱 <span aria-hidden="true">*</span></label>
+            <input
+              type="text"
+              id="player-nickname"
+              name="nickname"
+              required
+              minlength="1"
+              maxlength="20"
+              autocomplete="nickname"
+              autocorrect="off"
+              spellcheck="false"
+              enterkeyhint="next"
+              aria-describedby="nickname-help nickname-error"
+            >
+            <span id="nickname-help" class="hint">若重複使用相同暱稱送出，將會更新你原本的預測紀錄。</span>
+            <span id="nickname-error" class="error-text" aria-live="polite"></span>
+          </div>
+        </div>
+
+        <div id="predict-cities-grid" class="cities-grid"></div>
+
+        <div class="form-footer">
+          <div id="predict-status" class="status-banner" role="status" aria-live="polite"></div>
+          <button type="submit" id="submit-predict-btn" class="btn btn-primary btn-lg">
+            送出我的預測
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 檢視 2：開票結果輸入（試玩 / 當天真實記錄） -->
+    <section id="view-results" class="view-section" aria-labelledby="results-heading" hidden>
+      <div class="section-header">
+        <div>
+          <h2 id="results-heading">開票結果輸入（試玩模擬 / 選舉當天結算）</h2>
+          <p class="section-desc">
+            目前可手動輸入或一鍵模擬開票結果來試玩計分；選舉當天只要更新這裡的真實數據，所有玩家就會即時結算排名！
+          </p>
+        </div>
+        <div class="quick-actions">
+          <button type="button" id="simulate-results-btn" class="btn btn-secondary">一鍵隨機模擬開票</button>
+          <button type="button" id="clear-results-btn" class="btn btn-outline-danger">清空開票數據</button>
+        </div>
+      </div>
+
+      <form id="results-form" aria-labelledby="results-heading" novalidate>
+        <div id="results-cities-grid" class="cities-grid"></div>
+
+        <div class="form-footer">
+          <div id="results-status" class="status-banner" role="status" aria-live="polite"></div>
+          <button type="submit" id="submit-results-btn" class="btn btn-primary btn-lg">
+            儲存開票結果並結算分數
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <!-- 檢視 3：排行榜與誤差分析 -->
+    <section id="view-leaderboard" class="view-section" aria-labelledby="leaderboard-heading" hidden>
+      <div class="section-header">
+        <div>
+          <h2 id="leaderboard-heading">即時神算排行榜</h2>
+          <p id="leaderboard-summary" class="section-desc">載入中...</p>
+        </div>
+        <div class="quick-actions">
+          <button type="button" id="reset-local-btn" class="btn btn-outline-danger" hidden>清除本機試玩資料</button>
+        </div>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="leaderboard-table-caption" class="table-wrapper">
+        <table class="leaderboard-table">
+          <caption id="leaderboard-table-caption">2026 九合一預測排行榜（依總分高至低、總誤差低至高排序）</caption>
+          <thead>
+            <tr>
+              <th scope="col">名次</th>
+              <th scope="col">玩家暱稱</th>
+              <th scope="col">猜中縣市</th>
+              <th scope="col">得票率總誤差</th>
+              <th scope="col">總分</th>
+              <th scope="col">詳細對比</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboard-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- 原生 Modal Dialog：玩家明細對比 -->
+  <dialog id="detail-dialog" aria-labelledby="detail-dialog-title" closedby="any">
+    <div class="dialog-header">
+      <h1 id="detail-dialog-title">預測誤差明細</h1>
+      <form method="dialog">
+        <button type="submit" value="close" class="btn btn-sm btn-outline" autofocus>關閉</button>
+      </form>
+    </div>
+    <div id="detail-dialog-body" class="dialog-body"></div>
+  </dialog>
+
+  <!-- 原生 Modal Dialog：計分規則與 Firebase 設定說明 -->
+  <dialog id="guide-dialog" aria-labelledby="guide-dialog-title" closedby="any">
+    <div class="dialog-header">
+      <h1 id="guide-dialog-title">計分規則與 Firebase 連線說明</h1>
+      <form method="dialog">
+        <button type="submit" value="close" class="btn btn-sm btn-outline" autofocus>關閉</button>
+      </form>
+    </div>
+    <div class="dialog-body">
+      <h2>計分方式（每縣市滿分 100 分）</h2>
+      <ul>
+        <li><strong>猜中當選人（+40 分）</strong>：該縣市預測的當選人與實際當選人相同即可獲得。</li>
+        <li><strong>得票率精準度（最高 60 分）</strong>：將該縣市每位候選人的 <code>|預測得票率 - 實際得票率|</code> 相加得到「誤差總和」，公式為 <code>max(0, 60 - 誤差總和 × 1.5)</code>。</li>
+        <li><strong>勝負關鍵</strong>：誤差越小，分數越高！總分相同時，以「得票率總誤差」較小者勝出。</li>
+      </ul>
+
+      <h2>如何從「本機試玩」切換為「Firebase 多人連線」？</h2>
+      <ol>
+        <li>前往 <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer">Firebase Console</a> 建立專案並啟用 <strong>Firestore Database</strong>。</li>
+        <li>新增「網頁應用程式 (Web)」，複製 <code>firebaseConfig</code>。</li>
+        <li>打開專案中的 <code>firebase-config.js</code> 貼上設定，推上 GitHub Pages 即可多人即時遊玩！</li>
+      </ol>
+    </div>
+  </dialog>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
