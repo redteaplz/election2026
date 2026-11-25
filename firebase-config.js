@@ -12,3 +12,7 @@ export const firebaseConfig = {
   appId: "1:427498512950:web:13e2ea172af88e2594ae97",
   measurementId: "G-G7QY5VF49S"
 };
+
+// 管理員 Google Email（只有此信箱在 ?admin=1 登入後，才看得到並可操作「開票結果輸入」）
+// 請同步在 Firebase Firestore Rules 加上相同 Email 限制！
+export const adminEmail = "redteaplz@gmail.com";
