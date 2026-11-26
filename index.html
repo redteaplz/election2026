@@ -86,11 +86,15 @@
               <legend>賽局類型</legend>
               <label class="radio-pill">
                 <input type="radio" name="new-game-type" value="official" checked>
-                <span>正式賽局（讀取官方結果・16:00 自動鎖單）</span>
+                <span>正式賽局（讀取官方結果・自動鎖單）</span>
               </label>
               <label class="radio-pill">
                 <input type="radio" name="new-game-type" value="test">
-                <span>測試賽局（管理員手動/模擬結果・不鎖單）</span>
+                <span>測試賽局（手動/單次模擬結果・不鎖單）</span>
+              </label>
+              <label class="radio-pill">
+                <input type="radio" name="new-game-type" value="test-livesim">
+                <span>測試賽局：GAS 即時開票模擬（讀取 2026_sim 測試數據）</span>
               </label>
             </fieldset>
 
@@ -242,7 +246,7 @@
   <footer class="site-footer">
     <div class="container">
       <span>2026 九合一選舉預測大賽</span>
-      <span class="version-tag">版本：v1.0.0</span>
+      <span class="version-tag">版本：v1.1.0</span>
     </div>
   </footer>
 

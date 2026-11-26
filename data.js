@@ -18,15 +18,16 @@ export function isGameLocked(game, nowMs = Date.now()) {
 /**
  * 判斷賽局是否已結算計分（歷史賽局）：
  * - 已標記 settled === true
- * - 或該賽局對應的開票結果已有結算資料（相容舊資料）
+ * - 舊版未含 settled 欄位的測試賽局若已有 testResults 亦視為已結算
+ * （正式賽局與即時模擬賽局在開票過程中會持續更新，需由管理員手動結算封存後才成為歷史賽局）
  */
-export function isGameSettled(game, officialResults = null) {
+export function isGameSettled(game) {
   if (!game) return false;
-  if (game.settled) return true;
-  if (game.type === "official") {
-    return Object.keys(officialResults?.cities || {}).length > 0;
+  if (typeof game.settled === "boolean") return game.settled;
+  if (game.type === "test" && !game.useLiveSim) {
+    return Object.keys(game.testResults?.cities || {}).length > 0;
   }
-  return Object.keys(game.testResults?.cities || {}).length > 0;
+  return false;
 }
 
 export function formatLockTime(isoString) {

@@ -778,6 +778,11 @@ dialog::backdrop {
   color: #334155;
 }
 
+.lock-pill-sim {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 /* Admin Create Game Panel */
 .admin-panel {
   background: var(--surface);

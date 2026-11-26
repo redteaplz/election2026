@@ -21,6 +21,7 @@ import {
   saveOfficialResults,
   settleOfficialGame,
   subscribeOfficialResults,
+  subscribeSimulatedResults,
   clearLocalData
 } from "./firebase-service.js";
 
@@ -30,6 +31,7 @@ let allGames = [];
 let activeGameId = null;
 let currentPredictions = [];
 let officialResults = { cities: {} };
+let simulatedResults = { cities: {}, isSimulated: true };
 let unsubscribePredictions = null;
 let currentAdminUser = null;
 let isAuthorizedAdmin = false;
@@ -115,6 +117,9 @@ function getActiveGameResults() {
   if (game.type === "official") {
     return officialResults || { cities: {} };
   }
+  if (game.useLiveSim) {
+    return simulatedResults || { cities: {}, isSimulated: true };
+  }
   return game.testResults || { cities: {} };
 }
 
@@ -149,6 +154,17 @@ async function bootstrap() {
     renderLobby();
     const active = getActiveGame();
     if (active && active.type === "official") {
+      updateActiveGameUI();
+      syncResultsFormFromData(getActiveGameResults().cities || {});
+      renderLeaderboard();
+    }
+  });
+
+  subscribeSimulatedResults((data) => {
+    simulatedResults = data || { cities: {}, isSimulated: true };
+    renderLobby();
+    const active = getActiveGame();
+    if (active && active.useLiveSim) {
       updateActiveGameUI();
       syncResultsFormFromData(getActiveGameResults().cities || {});
       renderLeaderboard();
@@ -341,6 +357,11 @@ function updateActiveGameUI() {
       ? `已於 ${formatLockTime(game.lockAt)} 鎖單`
       : `開放預測中（${formatLockTime(game.lockAt)} 鎖單）`;
     activeGameLockBadge.className = `lock-pill ${locked ? "lock-pill-locked" : "lock-pill-open"}`;
+  } else if (game.useLiveSim) {
+    const pct = simulatedResults?.countingProgress;
+    activeGameLockBadge.textContent =
+      typeof pct === "number" ? `測試模擬開票中（${pct}%）` : "GAS 測試模擬串接中";
+    activeGameLockBadge.className = "lock-pill lock-pill-sim";
   } else {
     activeGameLockBadge.textContent = "測試賽局（不鎖單）";
     activeGameLockBadge.className = "lock-pill lock-pill-open";
@@ -374,7 +395,11 @@ function updateActiveGameUI() {
     simulateResultsBtn.hidden = true;
   } else if (isOfficial) {
     resultsModeDesc.textContent =
-      "本局為【正式賽局】：儲存開票結果並結算後，將同步套用官方結果並將本賽局歸檔為歷史賽局（不可再修改）。";
+      "本局為【正式賽局】：開票中會同步 official_results/2026；按下「儲存開票結果並結算分數」後即歸檔為歷史賽局（不可再修改）。";
+    simulateResultsBtn.hidden = true;
+  } else if (game.useLiveSim) {
+    resultsModeDesc.textContent =
+      "本局為【GAS 測試模擬賽局】：即時讀取測試專用文件 official_results/2026_sim（與正式資料完全分開）；按下結算後將封存為歷史賽局。";
     simulateResultsBtn.hidden = true;
   } else {
     resultsModeDesc.textContent =
@@ -418,9 +443,11 @@ function setupAdminCreateHandlers() {
       return;
     }
 
-    const selectedType = document.querySelector('input[name="new-game-type"]:checked')?.value || "test";
+    const selectedRadio = document.querySelector('input[name="new-game-type"]:checked')?.value || "test";
+    const type = selectedRadio === "official" ? "official" : "test";
+    const useLiveSim = selectedRadio === "test-livesim";
     let lockAt = null;
-    if (selectedType === "official") {
+    if (type === "official") {
       const rawVal = newGameLockAtInput.value;
       lockAt = rawVal ? `${rawVal}:00+08:00` : OFFICIAL_LOCK_ISO;
     }
@@ -428,7 +455,7 @@ function setupAdminCreateHandlers() {
     const createBtn = document.getElementById("create-game-btn");
     createBtn.disabled = true;
     try {
-      const created = await createGame({ title, type: selectedType, lockAt });
+      const created = await createGame({ title, type, lockAt, useLiveSim });
       newGameTitleInput.value = "";
       setStatus(createGameStatus, `已成功開啟「${created.title}」！`, "success");
     } catch (err) {
@@ -452,12 +479,15 @@ function createGameCard(game) {
 
   const typePill = document.createElement("span");
   typePill.className = `game-pill ${isOfficial ? "game-pill-official" : "game-pill-test"}`;
-  typePill.textContent = isOfficial ? "正式賽局" : "測試賽局";
+  typePill.textContent = isOfficial ? "正式賽局" : game.useLiveSim ? "測試賽局（GAS模擬）" : "測試賽局";
 
   const lockPill = document.createElement("span");
   if (settled) {
     lockPill.className = "lock-pill lock-pill-settled";
     lockPill.textContent = "歷史賽局・已結算";
+  } else if (game.useLiveSim) {
+    lockPill.className = "lock-pill lock-pill-sim";
+    lockPill.textContent = "測試模擬即時更新";
   } else {
     lockPill.className = `lock-pill ${locked ? "lock-pill-locked" : "lock-pill-open"}`;
     lockPill.textContent = isOfficial
@@ -479,6 +509,8 @@ function createGameCard(game) {
     meta.textContent = game.settledAt
       ? `結算時間：${formatLockTime(game.settledAt)}（僅供檢視賽局與分數）`
       : "已完成結算計分（僅供檢視賽局與分數）";
+  } else if (game.useLiveSim) {
+    meta.textContent = "讀取測試專用 2026_sim 即時模擬開票（不影響正式賽局）";
   } else {
     meta.textContent = isOfficial
       ? `官方開票同步｜截止時間：${formatLockTime(game.lockAt)}`
@@ -899,11 +931,19 @@ function renderLeaderboard() {
   const activeResults = getActiveGameResults();
   const openedCount = Object.keys(activeResults?.cities || {}).length;
 
+  const simPrefix = activeResults?.isSimulated ? "【測試模擬數據】" : "";
+  const progressInfo = typeof activeResults?.countingProgress === "number"
+    ? `｜開票進度 ${activeResults.countingProgress}%`
+    : "";
+  const updatedInfo = activeResults?.updatedAt
+    ? `｜最後更新：${formatLockTime(activeResults.updatedAt)}`
+    : "";
+
   leaderboardSummary.textContent = !game
     ? "請先選擇賽局。"
     : openedCount === 0
-      ? `「${game.title}」目前共有 ${currentPredictions.length} 位玩家完成預測（尚未開票）。`
-      : `「${game.title}」目前已開票 ${openedCount} / ${CONSTITUENCIES.length} 題，共有 ${currentPredictions.length} 位玩家參與排名。`;
+      ? `${simPrefix}「${game.title}」目前共有 ${currentPredictions.length} 位玩家完成預測（尚未開票）。`
+      : `${simPrefix}「${game.title}」目前已開票 ${openedCount} / ${CONSTITUENCIES.length} 題，共有 ${currentPredictions.length} 位玩家參與排名${progressInfo}${updatedInfo}。`;
 
   leaderboardTbody.replaceChildren();
 

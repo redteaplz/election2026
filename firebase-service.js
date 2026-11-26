@@ -4,6 +4,7 @@ import { OFFICIAL_LOCK_ISO } from "./data.js";
 const LOCAL_GAMES_KEY = "election2026_games_v2";
 const LOCAL_PREDICTIONS_KEY = "election2026_predictions_v2";
 const LOCAL_OFFICIAL_RESULTS_KEY = "election2026_official_results_v2";
+const LOCAL_SIM_RESULTS_KEY = "election2026_sim_results_v2";
 
 let mode = "local"; // "firebase" | "local"
 let db = null;
@@ -94,7 +95,7 @@ export function subscribeGames(callback) {
 /**
  * 建立新賽局（管理員）
  */
-export async function createGame({ title, type, lockAt }) {
+export async function createGame({ title, type, lockAt, useLiveSim = false }) {
   const id = `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const isOfficial = type === "official";
   const resolvedLockAt = isOfficial ? (lockAt || OFFICIAL_LOCK_ISO) : null;
@@ -106,6 +107,7 @@ export async function createGame({ title, type, lockAt }) {
     id,
     title: title.trim(),
     type: isOfficial ? "official" : "test",
+    useLiveSim: !isOfficial && Boolean(useLiveSim),
     lockAt: resolvedLockAt,
     lockAtMs,
     settled: false,
@@ -300,12 +302,37 @@ export function subscribeOfficialResults(callback) {
 }
 
 /**
+ * 訂閱「GAS 模擬即時開票結果」（測試數據，與正式 official_results/2026 完全隔離）
+ */
+export function subscribeSimulatedResults(callback) {
+  if (mode === "firebase" && db && firestoreApi) {
+    const { doc, onSnapshot } = firestoreApi;
+    return onSnapshot(doc(db, "official_results", "2026_sim"), (docSnap) => {
+      callback(docSnap.exists() ? docSnap.data() : { cities: {}, isSimulated: true });
+    });
+  }
+
+  const emitLocal = () => {
+    try {
+      const raw = localStorage.getItem(LOCAL_SIM_RESULTS_KEY);
+      callback(raw ? JSON.parse(raw) : { cities: {}, isSimulated: true });
+    } catch {
+      callback({ cities: {}, isSimulated: true });
+    }
+  };
+  emitLocal();
+  window.addEventListener("local-storage-updated", emitLocal);
+  return () => window.removeEventListener("local-storage-updated", emitLocal);
+}
+
+/**
  * 清除本機試玩資料
  */
 export function clearLocalData() {
   localStorage.removeItem(LOCAL_GAMES_KEY);
   localStorage.removeItem(LOCAL_PREDICTIONS_KEY);
   localStorage.removeItem(LOCAL_OFFICIAL_RESULTS_KEY);
+  localStorage.removeItem(LOCAL_SIM_RESULTS_KEY);
   window.dispatchEvent(new CustomEvent("local-storage-updated"));
 }
 
