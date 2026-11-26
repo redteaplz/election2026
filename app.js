@@ -15,6 +15,7 @@ import {
   subscribeGames,
   createGame,
   deleteGame,
+  normalizeNicknameId,
   saveGamePrediction,
   subscribeGamePredictions,
   saveTestGameResults,
@@ -24,6 +25,25 @@ import {
   subscribeSimulatedResults,
   clearLocalData
 } from "./firebase-service.js";
+
+const PLAYER_TOKEN_KEY = "election2026_player_token";
+const MY_NICKNAME_KEY = "election2026_my_nickname";
+
+function getOrCreatePlayerToken() {
+  let token = localStorage.getItem(PLAYER_TOKEN_KEY);
+  if (!token) {
+    token =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(PLAYER_TOKEN_KEY, token);
+  }
+  return token;
+}
+
+function getSavedNickname() {
+  return localStorage.getItem(MY_NICKNAME_KEY) || "";
+}
 
 // App state
 let storageMode = "local";
@@ -94,10 +114,19 @@ const resultsCitiesGrid = document.getElementById("results-cities-grid");
 const resultsStatus = document.getElementById("results-status");
 const submitResultsBtn = document.getElementById("submit-results-btn");
 
-// Leaderboard
+// Leaderboard & Live Results
 const leaderboardSummary = document.getElementById("leaderboard-summary");
 const leaderboardTbody = document.getElementById("leaderboard-tbody");
 const resetLocalBtn = document.getElementById("reset-local-btn");
+const liveIndicator = document.getElementById("live-indicator");
+const liveIndicatorText = document.getElementById("live-indicator-text");
+const liveSourceLabel = document.getElementById("live-source-label");
+const liveProgressWrap = document.getElementById("live-progress-wrap");
+const liveProgressText = document.getElementById("live-progress-text");
+const liveProgressBar = document.getElementById("live-progress-bar");
+const liveProgressFill = document.getElementById("live-progress-fill");
+const liveResultsUpdated = document.getElementById("live-results-updated");
+const liveResultsGrid = document.getElementById("live-results-grid");
 
 // Dialog
 const detailDialog = document.getElementById("detail-dialog");
@@ -144,6 +173,10 @@ async function bootstrap() {
 
   renderCityCards(predictCitiesGrid, "pred");
   renderCityCards(resultsCitiesGrid, "res");
+  const savedName = getSavedNickname();
+  if (savedName && !nicknameInput.value) {
+    nicknameInput.value = savedName;
+  }
   setupNavigation();
   setupAdminCreateHandlers();
   setupFormHandlers();
@@ -172,31 +205,40 @@ async function bootstrap() {
   });
 
   let handledInitialRoute = false;
-  subscribeGames((list) => {
-    allGames = list;
-    renderLobby();
+  subscribeGames(
+    (list) => {
+      allGames = list;
+      renderLobby();
 
-    if (!handledInitialRoute && initialGameId) {
-      handledInitialRoute = true;
-      if (allGames.some((g) => g.id === initialGameId)) {
-        enterGame(initialGameId, "predict");
-        return;
-      }
-    }
-
-    if (activeGameId) {
-      const active = getActiveGame();
-      if (!active) {
-        leaveGame();
-      } else {
-        updateActiveGameUI();
-        if (active.type === "test") {
-          syncResultsFormFromData(active.testResults?.cities || {});
+      if (!handledInitialRoute && initialGameId) {
+        handledInitialRoute = true;
+        if (allGames.some((g) => g.id === initialGameId)) {
+          enterGame(initialGameId, "predict");
+          return;
         }
-        renderLeaderboard();
       }
+
+      if (activeGameId) {
+        const active = getActiveGame();
+        if (!active) {
+          leaveGame();
+        } else {
+          updateActiveGameUI();
+          if (active.type === "test") {
+            syncResultsFormFromData(active.testResults?.cities || {});
+          }
+          renderLeaderboard();
+        }
+      }
+    },
+    (err) => {
+      gamesListGrid.replaceChildren();
+      const errCard = document.createElement("div");
+      errCard.className = "empty-lobby-card";
+      errCard.textContent = `無法讀取賽局列表（${err.code || err.message}），請檢查 Firestore Rules 或 API Key 網域限制。`;
+      gamesListGrid.appendChild(errCard);
     }
-  });
+  );
 
   // Periodic lock-status refresh (auto-locks official games at 16:00)
   setInterval(() => {
@@ -783,6 +825,19 @@ function setupFormHandlers() {
       return;
     }
 
+    const myToken = getOrCreatePlayerToken();
+    const targetDocId = normalizeNicknameId(nickname);
+    const existing = currentPredictions.find(
+      (p) => p.id === targetDocId || p.nickname?.trim().toLowerCase() === nickname.toLowerCase()
+    );
+    if (existing && existing.ownerToken !== myToken) {
+      nicknameInput.setAttribute("aria-invalid", "true");
+      nicknameError.textContent = `暱稱「${nickname}」已被其他玩家使用，請換一個暱稱。`;
+      nicknameInput.focus();
+      setStatus(predictStatus, `暱稱「${nickname}」已被其他玩家使用，請換一個暱稱！`, "error");
+      return;
+    }
+
     const parsed = readCitiesFromForm("pred", { requireAll: true });
     if (parsed.error) {
       setStatus(predictStatus, parsed.error, "error");
@@ -792,7 +847,8 @@ function setupFormHandlers() {
 
     submitPredictBtn.disabled = true;
     try {
-      await saveGamePrediction(game.id, nickname, parsed.data);
+      await saveGamePrediction(game.id, nickname, parsed.data, myToken);
+      localStorage.setItem(MY_NICKNAME_KEY, nickname);
       setStatus(predictStatus, `已成功儲存「${nickname}」在「${game.title}」的預測！`, "success");
     } catch (err) {
       setStatus(predictStatus, `儲存失敗：${err.message}`, "error");
@@ -925,11 +981,97 @@ function setStatus(el, msg, type) {
   el.className = `status-banner ${type === "error" ? "status-error" : "status-success"}`;
 }
 
-// 6. Leaderboard Rendering
+// 6. Leaderboard & Live Results Rendering
+function renderLiveResultsPanel(game, activeResults) {
+  const citiesMap = activeResults?.cities || {};
+  const isSettled = Boolean(game && game.settledResults?.cities && Object.keys(game.settledResults.cities).length > 0);
+
+  if (isSettled) {
+    liveIndicator.classList.add("is-settled");
+    liveIndicatorText.textContent = "已結算鎖定";
+  } else {
+    liveIndicator.classList.remove("is-settled");
+    liveIndicatorText.textContent = storageMode === "firebase" ? "Firebase 即時同步中" : "本機即時同步中";
+  }
+
+  if (!game) {
+    liveSourceLabel.textContent = "";
+  } else if (isSettled) {
+    liveSourceLabel.textContent = "資料來源：歷史結算快照";
+  } else if (game.type === "official") {
+    liveSourceLabel.textContent = "資料來源：官方開票資料庫";
+  } else if (game.useLiveSim) {
+    liveSourceLabel.textContent = "資料來源：即時模擬開票資料庫（測試）";
+  } else {
+    liveSourceLabel.textContent = "資料來源：本測試賽局開票資料";
+  }
+
+  if (typeof activeResults?.countingProgress === "number") {
+    const pct = Math.max(0, Math.min(100, activeResults.countingProgress));
+    liveProgressWrap.hidden = false;
+    liveProgressText.textContent = `${pct}%`;
+    liveProgressFill.style.width = `${pct}%`;
+    liveProgressBar.setAttribute("aria-valuenow", String(pct));
+  } else {
+    liveProgressWrap.hidden = true;
+  }
+
+  liveResultsUpdated.textContent = activeResults?.updatedAt
+    ? `最後更新：${formatLockTime(activeResults.updatedAt)}`
+    : "尚未有開票數據";
+
+  liveResultsGrid.replaceChildren();
+
+  for (const city of CONSTITUENCIES) {
+    const cityRes = citiesMap[city.id];
+    const hasResult = Boolean(cityRes && cityRes.winnerId);
+
+    const card = document.createElement("div");
+    card.className = hasResult ? "live-result-card is-opened" : "live-result-card";
+
+    const cityTitle = document.createElement("div");
+    cityTitle.className = "live-result-city";
+    cityTitle.textContent = city.name;
+    card.appendChild(cityTitle);
+
+    if (hasResult) {
+      const cand = city.candidates.find((c) => c.id === cityRes.winnerId);
+      const winnerRow = document.createElement("div");
+      winnerRow.className = "live-result-winner";
+
+      const dot = document.createElement("span");
+      dot.className = "party-dot";
+      dot.style.backgroundColor = cand?.color || "#64748b";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = cand?.name ?? cityRes.winnerId;
+
+      winnerRow.append(dot, nameSpan);
+      card.appendChild(winnerRow);
+
+      if (city.type === "mayor" && typeof cityRes.winnerShare === "number") {
+        const shareEl = document.createElement("div");
+        shareEl.className = "live-result-share";
+        shareEl.textContent = `得票率：${cityRes.winnerShare}%`;
+        card.appendChild(shareEl);
+      }
+    } else {
+      const pending = document.createElement("div");
+      pending.className = "live-result-pending";
+      pending.textContent = "尚未開票";
+      card.appendChild(pending);
+    }
+
+    liveResultsGrid.appendChild(card);
+  }
+}
+
 function renderLeaderboard() {
   const game = getActiveGame();
   const activeResults = getActiveGameResults();
   const openedCount = Object.keys(activeResults?.cities || {}).length;
+
+  renderLiveResultsPanel(game, activeResults);
 
   const simPrefix = activeResults?.isSimulated ? "【測試模擬數據】" : "";
   const progressInfo = typeof activeResults?.countingProgress === "number"
@@ -972,8 +1114,19 @@ function renderLeaderboard() {
       return b.summary.winnerHits - a.summary.winnerHits;
     });
 
+  const myToken = getOrCreatePlayerToken();
+  const myNickname = getSavedNickname().toLowerCase();
+
   ranked.forEach(({ pred, summary }, index) => {
+    const isSelf = Boolean(
+      (pred.ownerToken && pred.ownerToken === myToken) ||
+      (!pred.ownerToken && myNickname && pred.nickname?.trim().toLowerCase() === myNickname)
+    );
+
     const tr = document.createElement("tr");
+    if (isSelf) {
+      tr.className = "is-self";
+    }
 
     const rankTd = document.createElement("td");
     rankTd.textContent = `#${index + 1}`;
@@ -981,6 +1134,12 @@ function renderLeaderboard() {
     const nameTh = document.createElement("th");
     nameTh.scope = "row";
     nameTh.textContent = pred.nickname;
+    if (isSelf) {
+      const selfTag = document.createElement("span");
+      selfTag.className = "self-badge";
+      selfTag.textContent = "你";
+      nameTh.appendChild(selfTag);
+    }
 
     const hitsTd = document.createElement("td");
     hitsTd.textContent = openedCount > 0 ? `${summary.winnerHits} / ${summary.scoredCities}` : "待開票";
