@@ -71,15 +71,22 @@ export async function signOutAdmin() {
 /**
  * 訂閱所有賽局列表（由新到舊排序）
  */
-export function subscribeGames(callback) {
+export function subscribeGames(callback, onError) {
   if (mode === "firebase" && db && firestoreApi) {
     const { collection, onSnapshot, query, orderBy } = firestoreApi;
     const q = query(collection(db, "games"), orderBy("createdAt", "desc"));
-    return onSnapshot(q, (snapshot) => {
-      const list = [];
-      snapshot.forEach((docSnap) => list.push(docSnap.data()));
-      callback(list);
-    });
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list = [];
+        snapshot.forEach((docSnap) => list.push(docSnap.data()));
+        callback(list);
+      },
+      (err) => {
+        console.error("讀取賽局列表失敗：", err);
+        if (onError) onError(err);
+      }
+    );
   }
 
   ensureDefaultLocalGame();
@@ -147,15 +154,23 @@ export async function deleteGame(gameId) {
   window.dispatchEvent(new CustomEvent("local-storage-updated"));
 }
 
+export function normalizeNicknameId(nickname) {
+  return nickname
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5_-]/g, "_");
+}
+
 /**
  * 儲存或更新指定賽局的玩家預測
  */
-export async function saveGamePrediction(gameId, nickname, cities) {
+export async function saveGamePrediction(gameId, nickname, cities, ownerToken = "") {
   const cleanName = nickname.trim();
-  const docId = cleanName.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5_-]/g, "_");
+  const docId = normalizeNicknameId(cleanName);
   const payload = {
     id: docId,
     nickname: cleanName,
+    ownerToken,
     cities,
     updatedAt: new Date().toISOString()
   };

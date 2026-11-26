@@ -224,6 +224,35 @@
         </div>
       </div>
 
+      <!-- 即時資料庫同步狀態與進度條 -->
+      <div id="live-sync-banner" class="live-sync-banner" aria-live="polite">
+        <div class="live-sync-top">
+          <span id="live-indicator" class="live-indicator">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span id="live-indicator-text">即時同步中</span>
+          </span>
+          <span id="live-source-label" class="live-source-label"></span>
+        </div>
+        <div id="live-progress-wrap" class="live-progress-wrap" hidden>
+          <div class="live-progress-meta">
+            <span>開票進度</span>
+            <strong id="live-progress-text">0%</strong>
+          </div>
+          <div class="live-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="live-progress-bar">
+            <div class="live-progress-fill" id="live-progress-fill"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 當前開票結果即時看板 -->
+      <section class="live-results-panel" aria-labelledby="live-results-heading">
+        <div class="live-results-header">
+          <h3 id="live-results-heading">當前開票結果</h3>
+          <span id="live-results-updated" class="hint"></span>
+        </div>
+        <div id="live-results-grid" class="live-results-grid"></div>
+      </section>
+
       <div tabindex="0" role="region" aria-labelledby="leaderboard-table-caption" class="table-wrapper">
         <table class="leaderboard-table">
           <caption id="leaderboard-table-caption">2026 九合一預測排行榜（依總分高至低、總誤差低至高排序）</caption>
@@ -246,7 +275,7 @@
   <footer class="site-footer">
     <div class="container">
       <span>2026 九合一選舉預測大賽</span>
-      <span class="version-tag">版本：v1.1.0</span>
+      <span class="version-tag">版本：v1.2.0</span>
     </div>
   </footer>
 
