@@ -96,11 +96,18 @@ export function subscribeGames(callback) {
  */
 export async function createGame({ title, type, lockAt }) {
   const id = `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  const isOfficial = type === "official";
+  const resolvedLockAt = isOfficial ? (lockAt || OFFICIAL_LOCK_ISO) : null;
+  const parsedLockAtMs = resolvedLockAt ? Date.parse(resolvedLockAt) : null;
+  const lockAtMs = isOfficial
+    ? (Number.isNaN(parsedLockAtMs) ? Date.parse(OFFICIAL_LOCK_ISO) : parsedLockAtMs)
+    : null;
   const payload = {
     id,
     title: title.trim(),
-    type: type === "official" ? "official" : "test",
-    lockAt: type === "official" ? (lockAt || OFFICIAL_LOCK_ISO) : null,
+    type: isOfficial ? "official" : "test",
+    lockAt: resolvedLockAt,
+    lockAtMs,
     testResults: { cities: {}, updatedAt: null },
     createdAt: new Date().toISOString()
   };
@@ -278,6 +285,7 @@ function ensureDefaultLocalGame() {
         title: "2026 九合一正式賽局（範例）",
         type: "official",
         lockAt: OFFICIAL_LOCK_ISO,
+        lockAtMs: Date.parse(OFFICIAL_LOCK_ISO),
         testResults: { cities: {}, updatedAt: null },
         createdAt: new Date().toISOString()
       },
@@ -286,6 +294,7 @@ function ensureDefaultLocalGame() {
         title: "選前熱身測試賽局",
         type: "test",
         lockAt: null,
+        lockAtMs: null,
         testResults: { cities: {}, updatedAt: null },
         createdAt: new Date(Date.now() - 1000).toISOString()
       }
