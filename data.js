@@ -15,6 +15,20 @@ export function isGameLocked(game, nowMs = Date.now()) {
   return nowMs >= lockMs;
 }
 
+/**
+ * 判斷賽局是否已結算計分（歷史賽局）：
+ * - 已標記 settled === true
+ * - 或該賽局對應的開票結果已有結算資料（相容舊資料）
+ */
+export function isGameSettled(game, officialResults = null) {
+  if (!game) return false;
+  if (game.settled) return true;
+  if (game.type === "official") {
+    return Object.keys(officialResults?.cities || {}).length > 0;
+  }
+  return Object.keys(game.testResults?.cities || {}).length > 0;
+}
+
 export function formatLockTime(isoString) {
   const date = new Date(isoString || OFFICIAL_LOCK_ISO);
   if (Number.isNaN(date.getTime())) return "2026/11/28 16:00";
@@ -103,8 +117,8 @@ export const CONSTITUENCIES = [
  * - 五都市長（type: "mayor"，滿分 100 分）：
  *   1. 猜中當選人：+40 分
  *   2. 得票率精準度：max(0, 60 - |預測得票率 - 實際當選人得票率| * 2)
- * - 特別題（type: "yesno"，滿分 40 分）：
- *   預測成功（猜中會不會當選）：+40 分
+ * - 特別題（type: "yesno"，滿分 100 分）：
+ *   預測成功（猜中會不會當選）：+100 分
  */
 export function calculateCityScore(constituency, predictionCity, actualCity) {
   if (!predictionCity || !actualCity || !actualCity.winnerId) {
@@ -114,7 +128,7 @@ export function calculateCityScore(constituency, predictionCity, actualCity) {
   const winnerHit = predictionCity.winnerId === actualCity.winnerId;
 
   if (constituency.type === "yesno") {
-    const totalPoints = winnerHit ? 40 : 0;
+    const totalPoints = winnerHit ? 100 : 0;
     return {
       winnerHit,
       winnerPoints: totalPoints,

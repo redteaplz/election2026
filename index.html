@@ -60,8 +60,8 @@
         <h2 id="rules-heading">計分規則</h2>
         <ul class="rules-list">
           <li><strong>五都市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>；得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 2</code>，誤差越小分數越高）。</li>
-          <li><strong>桃園區議員特別題（滿分 40 分）</strong>：預測 12 號「王妃」會不會當選，預測成功即 <strong>+40 分</strong>。</li>
-          <li><strong>鎖單規則</strong>：<strong>正式賽局</strong>將於投票日 <strong>2026/11/28 下午 16:00</strong> 自動鎖單停止更動；<strong>測試賽局</strong>不鎖單，隨時可試玩。</li>
+          <li><strong>桃園區議員特別題（滿分 100 分）</strong>：預測 12 號「王妃」會不會當選，預測成功即 <strong>+100 分</strong>。</li>
+          <li><strong>鎖單與歷史賽局規則</strong>：<strong>正式賽局</strong>將於截止時間（預設 <strong>2026/11/28 16:00</strong>）自動鎖單；<strong>測試賽局</strong>不限時。任一賽局經結算計分後即成為<strong>歷史賽局</strong>，不可再新增預測或重新結算，但可隨時檢視賽局與分數。</li>
         </ul>
       </div>
 
@@ -121,6 +121,16 @@
       </div>
 
       <div id="games-list-grid" class="games-grid"></div>
+
+      <div id="history-games-section" class="history-section" hidden>
+        <div class="section-header">
+          <div>
+            <h2 id="history-heading">歷史賽局（已結算）</h2>
+            <p class="section-desc">已完成結算計分，無法再新增預測或修改結算成果，但可隨時檢視排行榜與明細。</p>
+          </div>
+        </div>
+        <div id="history-games-grid" class="games-grid"></div>
+      </div>
     </section>
 
     <!-- 檢視 1：我要預測 -->
@@ -171,6 +181,10 @@
 
     <!-- 檢視 2：開票結果輸入（管理員） -->
     <section id="view-results" class="view-section" aria-labelledby="results-heading" hidden>
+      <div id="results-settled-banner" class="lock-notice" role="status" hidden>
+        <strong>此賽局已結算計分（歷史賽局）！</strong> 不可再修改或重新結算開票成果，僅供檢視。
+      </div>
+
       <div class="section-header">
         <div>
           <h2 id="results-heading">開票結果輸入（管理員）</h2>
@@ -224,6 +238,13 @@
       </div>
     </section>
   </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <span>2026 九合一選舉預測大賽</span>
+      <span class="version-tag">版本：v1.0.0</span>
+    </div>
+  </footer>
 
   <!-- 原生 Modal Dialog：玩家明細對比 -->
   <dialog id="detail-dialog" aria-labelledby="detail-dialog-title" closedby="any">

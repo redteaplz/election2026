@@ -108,6 +108,8 @@ export async function createGame({ title, type, lockAt }) {
     type: isOfficial ? "official" : "test",
     lockAt: resolvedLockAt,
     lockAtMs,
+    settled: false,
+    settledAt: null,
     testResults: { cities: {}, updatedAt: null },
     createdAt: new Date().toISOString()
   };
@@ -205,24 +207,28 @@ export function subscribeGamePredictions(gameId, callback) {
 }
 
 /**
- * 儲存「測試賽局」專屬開票結果
+ * 儲存「測試賽局」專屬開票結果並結算為歷史賽局
  */
-export async function saveTestGameResults(gameId, cities) {
+export async function saveTestGameResults(gameId, cities, { settle = true } = {}) {
+  const now = new Date().toISOString();
   const testResults = {
     cities,
-    updatedAt: new Date().toISOString()
+    updatedAt: now
   };
+  const updates = settle
+    ? { testResults, settled: true, settledAt: now }
+    : { testResults };
 
   if (mode === "firebase" && db && firestoreApi) {
     const { doc, setDoc } = firestoreApi;
-    await setDoc(doc(db, "games", gameId), { testResults }, { merge: true });
+    await setDoc(doc(db, "games", gameId), updates, { merge: true });
     return testResults;
   }
 
   const list = readLocalGames();
   const idx = list.findIndex((g) => g.id === gameId);
   if (idx >= 0) {
-    list[idx] = { ...list[idx], testResults };
+    list[idx] = { ...list[idx], ...updates };
     localStorage.setItem(LOCAL_GAMES_KEY, JSON.stringify(list));
     window.dispatchEvent(new CustomEvent("local-storage-updated"));
   }
@@ -246,6 +252,33 @@ export async function saveOfficialResults(cities) {
 
   localStorage.setItem(LOCAL_OFFICIAL_RESULTS_KEY, JSON.stringify(payload));
   window.dispatchEvent(new CustomEvent("local-storage-updated"));
+  return payload;
+}
+
+/**
+ * 結算「正式賽局」：寫入官方開票結果並將該賽局標記為已結算歷史賽局
+ */
+export async function settleOfficialGame(gameId, cities) {
+  const payload = await saveOfficialResults(cities);
+  const updates = {
+    settled: true,
+    settledAt: payload.updatedAt,
+    settledResults: payload
+  };
+
+  if (mode === "firebase" && db && firestoreApi) {
+    const { doc, setDoc } = firestoreApi;
+    await setDoc(doc(db, "games", gameId), updates, { merge: true });
+    return payload;
+  }
+
+  const list = readLocalGames();
+  const idx = list.findIndex((g) => g.id === gameId);
+  if (idx >= 0) {
+    list[idx] = { ...list[idx], ...updates };
+    localStorage.setItem(LOCAL_GAMES_KEY, JSON.stringify(list));
+    window.dispatchEvent(new CustomEvent("local-storage-updated"));
+  }
   return payload;
 }
 
@@ -286,6 +319,8 @@ function ensureDefaultLocalGame() {
         type: "official",
         lockAt: OFFICIAL_LOCK_ISO,
         lockAtMs: Date.parse(OFFICIAL_LOCK_ISO),
+        settled: false,
+        settledAt: null,
         testResults: { cities: {}, updatedAt: null },
         createdAt: new Date().toISOString()
       },
@@ -295,6 +330,8 @@ function ensureDefaultLocalGame() {
         type: "test",
         lockAt: null,
         lockAtMs: null,
+        settled: false,
+        settledAt: null,
         testResults: { cities: {}, updatedAt: null },
         createdAt: new Date(Date.now() - 1000).toISOString()
       }

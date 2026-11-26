@@ -773,6 +773,11 @@ dialog::backdrop {
   color: #991b1b;
 }
 
+.lock-pill-settled {
+  background: #e2e8f0;
+  color: #334155;
+}
+
 /* Admin Create Game Panel */
 .admin-panel {
   background: var(--surface);
@@ -880,6 +885,17 @@ dialog::backdrop {
   border-block-start-color: var(--brothers-navy);
 }
 
+.game-card-settled {
+  border-block-start-color: #94a3b8;
+  background: var(--surface-muted);
+}
+
+.history-section {
+  margin-block-start: 2rem;
+  padding-block-start: 1.5rem;
+  border-block-start: 2px dashed var(--border);
+}
+
 .game-card-badges {
   display: flex;
   flex-wrap: wrap;
@@ -930,3 +946,26 @@ dialog::backdrop {
   margin-block-end: 1rem;
   font-size: 0.95rem;
 }
+
+/* Site Footer */
+.site-footer {
+  border-block-start: 1px solid var(--border);
+  padding-block: 1rem 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.site-footer .container {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.version-tag {
+  font-weight: 700;
+  color: var(--brothers-navy);
+  font-variant-numeric: tabular-nums;
+}
+
