@@ -205,9 +205,11 @@ function getPartyColorFallback(party) {
 /**
  * 統一解析單一選區開票結果（同時相容新版完整候選人陣列與舊版/手動簡化格式）：
  * - 新版格式（actualCity.candidates 陣列含每位候選人 votes 與 share）：
+ *   - 若全選區總票數與最高得票率皆為 0（尚未開出任何票），且無管理員手動覆寫，回傳 hasResult: false
  *   - 依 share 由高到低排序（同率再比 votes 高到低、no 小到大）
- *   - 縣市長 (type === "mayor")：最高得票率候選人為 winnerId / winnerShare
- *   - 桃園議員特別題 (type === "yesno")：若目標候選人 (12號王妃) 排名前 seats (12) 名，則 winnerId = "yes"，否則 "no"
+ *   - 縣市長 (type === "mayor")：最高得票率候選人為 winnerId / winnerShare（避免二次四捨五入誤差）
+ *   - 桃園議員特別題 (type === "yesno")：若目標候選人有官方 elected 註記則優先採用，否則排名前 seats (12) 名為 "yes"
+ *   - 若含 manualOverride === true，以管理員手動指定的 winnerId / winnerShare 為準，但仍保留 sortedCandidates 供展開檢視
  * - 舊版/手動格式（僅含 winnerId / winnerShare）：直接回傳既有值
  */
 export function resolveCityOutcome(constituency, actualCity) {
@@ -222,12 +224,25 @@ export function resolveCityOutcome(constituency, actualCity) {
         ? constituency.districtCandidates || []
         : constituency.candidates || [];
 
+    const computedTotalVotes = rawList.reduce((sum, item) => {
+      const v = Number(item.votes ?? 0);
+      return sum + (Number.isNaN(v) ? 0 : Math.max(0, v));
+    }, 0);
+    const totalVotes = Number(actualCity.totalVotes ?? computedTotalVotes);
+
     const normalized = rawList.map((item, idx) => {
       const ref =
         refPool.find((c) => c.id === item.id) ||
         (item.no != null ? refPool.find((c) => c.no === Number(item.no)) : null);
       const votes = Number(item.votes ?? 0);
-      const share = Number(Number(item.share ?? 0).toFixed(2));
+      const safeVotes = Number.isNaN(votes) ? 0 : Math.max(0, votes);
+      const hasExplicitShare = item.share !== undefined && item.share !== null;
+      const computedPct = totalVotes > 0 ? (safeVotes / totalVotes) * 100 : 0;
+      const rawShare = hasExplicitShare ? Number(item.share) : computedPct;
+      const safeRawShare = Number.isNaN(rawShare) ? 0 : Math.max(0, rawShare);
+      const isVoteDerivedShare =
+        !hasExplicitShare ||
+        (totalVotes > 0 && Math.abs(safeRawShare - Number(computedPct.toFixed(2))) < 0.005);
       const party = item.party || ref?.party || "";
       return {
         id: item.id || ref?.id || `cand-${idx + 1}`,
@@ -235,19 +250,40 @@ export function resolveCityOutcome(constituency, actualCity) {
         name: item.name || ref?.name || item.id || `候選人 ${idx + 1}`,
         party,
         color: ref?.color || getPartyColorFallback(party),
-        votes: Number.isNaN(votes) ? 0 : votes,
-        share: Number.isNaN(share) ? 0 : share
+        votes: safeVotes,
+        share: Number(safeRawShare.toFixed(2)),
+        elected: typeof item.elected === "boolean" ? item.elected : undefined,
+        _rawShare: safeRawShare,
+        _exactShare: isVoteDerivedShare && totalVotes > 0 ? computedPct : safeRawShare
       };
     });
 
-    const sortedCandidates = normalized.sort((a, b) => {
-      if (b.share !== a.share) return b.share - a.share;
-      if (b.votes !== a.votes) return b.votes - a.votes;
-      return (a.no ?? 0) - (b.no ?? 0);
-    });
+    const maxRawShare = normalized.reduce((m, c) => Math.max(m, c._rawShare), 0);
+    const hasOpenedVotes = totalVotes > 0 || maxRawShare > 0;
 
-    const computedTotalVotes = sortedCandidates.reduce((sum, c) => sum + c.votes, 0);
-    const totalVotes = Number(actualCity.totalVotes ?? computedTotalVotes);
+    const sortedCandidates = hasOpenedVotes
+      ? normalized
+          .sort((a, b) => {
+            if (b.share !== a.share) return b.share - a.share;
+            if (b.votes !== a.votes) return b.votes - a.votes;
+            return (a.no ?? 0) - (b.no ?? 0);
+          })
+          .map(({ _rawShare, _exactShare, ...publicCand }) => {
+            Object.defineProperty(publicCand, "_exactShare", {
+              value: _exactShare,
+              enumerable: false
+            });
+            return publicCand;
+          })
+      : [];
+
+    if (!hasOpenedVotes && !(actualCity.manualOverride && actualCity.winnerId)) {
+      return {
+        hasResult: false,
+        totalVotes: 0,
+        sortedCandidates: []
+      };
+    }
 
     if (constituency.type === "yesno") {
       const seats = Number(actualCity.seats ?? constituency.seats ?? 12);
@@ -255,11 +291,20 @@ export function resolveCityOutcome(constituency, actualCity) {
       const targetIdx = sortedCandidates.findIndex((c) => c.id === targetId || c.no === 12);
       const targetRank = targetIdx >= 0 ? targetIdx + 1 : null;
       const targetCand = targetIdx >= 0 ? sortedCandidates[targetIdx] : null;
-      const isElected = targetRank !== null && targetRank <= seats;
+      const autoElected =
+        targetCand && typeof targetCand.elected === "boolean"
+          ? targetCand.elected
+          : targetRank !== null && targetRank <= seats;
+      const resolvedWinnerId =
+        actualCity.manualOverride && (actualCity.winnerId === "yes" || actualCity.winnerId === "no")
+          ? actualCity.winnerId
+          : autoElected
+            ? "yes"
+            : "no";
 
       return {
         hasResult: true,
-        winnerId: isElected ? "yes" : "no",
+        winnerId: resolvedWinnerId,
         winnerShare: null,
         winnerVotes: null,
         totalVotes,
@@ -272,11 +317,34 @@ export function resolveCityOutcome(constituency, actualCity) {
       };
     }
 
+    if (actualCity.manualOverride && actualCity.winnerId) {
+      const matched =
+        sortedCandidates.find((c) => c.id === actualCity.winnerId) ||
+        constituency.candidates.find((c) => c.id === actualCity.winnerId);
+      return {
+        hasResult: true,
+        winnerId: actualCity.winnerId,
+        winnerShare: Number(Number(actualCity.winnerShare ?? 0).toFixed(1)),
+        winnerVotes: typeof matched?.votes === "number" ? matched.votes : null,
+        winnerName: matched?.name || null,
+        winnerColor: matched?.color || "#64748b",
+        totalVotes,
+        sortedCandidates
+      };
+    }
+
     const leader = sortedCandidates[0];
+    const preciseWinnerShare =
+      typeof actualCity.winnerShare === "number" && actualCity.officialWinnerShare === true
+        ? Number(actualCity.winnerShare.toFixed(1))
+        : leader
+          ? Number((leader._exactShare ?? leader.share).toFixed(1))
+          : 0;
+
     return {
       hasResult: Boolean(leader),
       winnerId: leader?.id || null,
-      winnerShare: leader ? Number(leader.share.toFixed(1)) : 0,
+      winnerShare: preciseWinnerShare,
       winnerVotes: leader?.votes ?? 0,
       winnerName: leader?.name || null,
       winnerColor: leader?.color || "#64748b",
@@ -308,7 +376,7 @@ export function resolveCityOutcome(constituency, actualCity) {
  * 計算單一選區得分：
  * - 縣市長（type: "mayor"，滿分 100 分）：
  *   1. 猜中當選人：+40 分，並加計得票率精準度 max(0, 60 - |預測得票率 - 實際當選人得票率| * 4)
- *   2. 未猜中當選人：直接 0 分（不計得票率精準度分數）
+ *   2. 未猜中當選人：直接 0 分（不計得票率精準度分數，亦不將落選人預估與當選人得票率之差混入總誤差）
  * - 特別題（type: "yesno"，滿分 60 分）：
  *   預測成功（猜中會不會當選）：+60 分
  */
@@ -344,7 +412,7 @@ export function calculateCityScore(constituency, predictionCity, actualCity) {
       winnerHit: false,
       winnerPoints: 0,
       accuracyPoints: 0,
-      errorSum: diff,
+      errorSum: 0,
       totalPoints: 0,
       predShare,
       actualShare

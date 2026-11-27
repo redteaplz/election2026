@@ -111,27 +111,40 @@ const CONSTITUENCY_META = {
 
 /**
  * 主排程函式：建議設定為每 1 分鐘（測試）或每 3~5 分鐘（正式）執行一次
+ * 內建 LockService 防重疊鎖，避免開票尖峰中選會回應較慢時排程重疊覆寫舊資料
  */
 function runLiveUpdate() {
-  if (CONFIG.MODE === "simulation") {
-    const payload = buildSimulatedPayload_();
-    writeFirestoreDocument_(CONFIG.SIM_DOC_PATH, payload);
-    Logger.log(
-      "[SIMULATION] Updated %s | progress=%s%% | taoyuan-c1 rank=%s (%s)",
-      CONFIG.SIM_DOC_PATH,
-      payload.countingProgress,
-      payload.cities["taoyuan-c1"].targetRank,
-      payload.cities["taoyuan-c1"].winnerId
-    );
+  const lock = typeof LockService !== "undefined" ? LockService.getScriptLock() : null;
+  if (lock && !lock.tryLock(5000)) {
+    Logger.log("[SKIP] 前一次 runLiveUpdate 仍在執行中，略過本次排程避免重疊。");
     return;
   }
 
-  if (!CONFIG.CEC_JSON_URL) {
-    throw new Error("正式模式請先在 CONFIG.CEC_JSON_URL 填入中選會資料來源網址。");
+  try {
+    if (CONFIG.MODE === "simulation") {
+      const payload = buildSimulatedPayload_();
+      writeFirestoreDocument_(CONFIG.SIM_DOC_PATH, payload);
+      Logger.log(
+        "[SIMULATION] Updated %s | progress=%s%% | taoyuan-c1 rank=%s (%s)",
+        CONFIG.SIM_DOC_PATH,
+        payload.countingProgress,
+        payload.cities["taoyuan-c1"].targetRank,
+        payload.cities["taoyuan-c1"].winnerId
+      );
+      return;
+    }
+
+    if (!CONFIG.CEC_JSON_URL) {
+      throw new Error("正式模式請先在 CONFIG.CEC_JSON_URL 填入中選會資料來源網址。");
+    }
+    const payload = fetchCecOfficialResults_();
+    writeFirestoreDocument_(CONFIG.OFFICIAL_DOC_PATH, payload);
+    Logger.log("[OFFICIAL] Updated %s | progress=%s%%", CONFIG.OFFICIAL_DOC_PATH, payload.countingProgress);
+  } finally {
+    if (lock) {
+      lock.releaseLock();
+    }
   }
-  const payload = fetchCecOfficialResults_();
-  writeFirestoreDocument_(CONFIG.OFFICIAL_DOC_PATH, payload);
-  Logger.log("[OFFICIAL] Updated %s | progress=%s%%", CONFIG.OFFICIAL_DOC_PATH, payload.countingProgress);
 }
 
 /**
@@ -167,53 +180,112 @@ function resetSimulation() {
  * 將單一選區的各候選人票數整理成標準 Firestore 格式（供模擬與中選會正式對接共用）
  *
  * @param {string} cityId - 選區 ID（如 "taipei"、"taoyuan-c1"）
- * @param {Object<string, number>} votesByCandidateId - { [candidateId]: votes }
+ * @param {Object<string, number|{votes:number, share?:number, elected?:boolean}>} inputByCandidateId
+ * @param {{ validVotes?: number }} [options]
  * @return {Object} 標準選區開票物件（詳見 gas/data.md）
  */
-function buildCityResultPayload_(cityId, votesByCandidateId) {
+function buildCityResultPayload_(cityId, inputByCandidateId, options) {
   const meta = CONSTITUENCY_META[cityId];
   if (!meta) {
     throw new Error("未知的選區 ID: " + cityId);
   }
 
-  let totalVotes = 0;
+  const map = inputByCandidateId || {};
+  let computedTotalVotes = 0;
   meta.candidates.forEach((c) => {
-    const v = Math.max(0, Math.round(Number(votesByCandidateId[c.id] || 0)));
-    totalVotes += v;
+    const entry = map[c.id];
+    const rawVotes = typeof entry === "object" && entry !== null ? entry.votes : entry;
+    const v = Math.max(0, Math.round(Number(rawVotes || 0)));
+    computedTotalVotes += v;
   });
 
-  const candidates = meta.candidates.map((c) => {
-    const votes = Math.max(0, Math.round(Number(votesByCandidateId[c.id] || 0)));
-    const share = totalVotes > 0 ? Number(((votes / totalVotes) * 100).toFixed(2)) : 0;
-    return {
+  const validVotesOpt = options && typeof options.validVotes === "number" ? options.validVotes : null;
+  const totalVotes = validVotesOpt !== null && validVotesOpt > 0 ? validVotesOpt : computedTotalVotes;
+
+  const enriched = meta.candidates.map((c) => {
+    const entry = map[c.id];
+    const isObj = typeof entry === "object" && entry !== null;
+    const rawVotes = isObj ? entry.votes : entry;
+    const votes = Math.max(0, Math.round(Number(rawVotes || 0)));
+    const hasOfficialShare = isObj && typeof entry.share === "number" && !Number.isNaN(entry.share);
+    const exactShare = hasOfficialShare
+      ? Math.max(0, entry.share)
+      : totalVotes > 0
+        ? (votes / totalVotes) * 100
+        : 0;
+    const item = {
       id: c.id,
       no: c.no,
       name: c.name,
       party: c.party,
       votes: votes,
-      share: share
+      share: Number(exactShare.toFixed(2)),
+      _exactShare: exactShare,
+      _hasOfficialShare: hasOfficialShare
     };
+    if (isObj && typeof entry.elected === "boolean") {
+      item.elected = entry.elected;
+    }
+    return item;
   });
 
+  const maxExactShare = enriched.reduce((m, c) => Math.max(m, c._exactShare), 0);
+  const hasOpenedVotes = computedTotalVotes > 0 || maxExactShare > 0;
+
   // 依得票率由高到低排序（同率比票數、再比號次）
-  candidates.sort((a, b) => {
-    if (b.share !== a.share) return b.share - a.share;
-    if (b.votes !== a.votes) return b.votes - a.votes;
-    return a.no - b.no;
+  if (hasOpenedVotes) {
+    enriched.sort((a, b) => {
+      if (b.share !== a.share) return b.share - a.share;
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      return a.no - b.no;
+    });
+  } else {
+    enriched.sort((a, b) => a.no - b.no);
+  }
+
+  const candidates = enriched.map((item) => {
+    const out = {
+      id: item.id,
+      no: item.no,
+      name: item.name,
+      party: item.party,
+      votes: item.votes,
+      share: item.share
+    };
+    if (typeof item.elected === "boolean") {
+      out.elected = item.elected;
+    }
+    return out;
   });
 
   if (meta.type === "yesno") {
     const seats = meta.seats || 12;
     const targetId = meta.targetCandidateId || "tyc1-12";
-    const targetIdx = candidates.findIndex((c) => c.id === targetId);
+    if (!hasOpenedVotes) {
+      return {
+        seats: seats,
+        targetCandidateId: targetId,
+        totalVotes: 0,
+        winnerId: null,
+        targetRank: null,
+        targetVotes: 0,
+        targetShare: 0,
+        candidates: candidates
+      };
+    }
+
+    const targetIdx = enriched.findIndex((c) => c.id === targetId);
     const targetRank = targetIdx >= 0 ? targetIdx + 1 : null;
-    const targetCand = targetIdx >= 0 ? candidates[targetIdx] : null;
-    const isElected = targetRank !== null && targetRank <= seats;
+    const targetCand = targetIdx >= 0 ? enriched[targetIdx] : null;
+    const isElected =
+      targetCand && typeof targetCand.elected === "boolean"
+        ? targetCand.elected
+        : targetRank !== null && targetRank <= seats;
 
     return {
       seats: seats,
       targetCandidateId: targetId,
-      totalVotes: totalVotes,
+      totalVotes: computedTotalVotes,
       winnerId: isElected ? "yes" : "no",
       targetRank: targetRank,
       targetVotes: targetCand ? targetCand.votes : 0,
@@ -222,14 +294,28 @@ function buildCityResultPayload_(cityId, votesByCandidateId) {
     };
   }
 
-  const leader = candidates[0] || { id: "", votes: 0, share: 0 };
-  return {
-    totalVotes: totalVotes,
+  if (!hasOpenedVotes) {
+    return {
+      totalVotes: 0,
+      winnerId: null,
+      winnerShare: null,
+      winnerVotes: 0,
+      candidates: candidates
+    };
+  }
+
+  const leader = enriched[0];
+  const payload = {
+    totalVotes: computedTotalVotes,
     winnerId: leader.id,
-    winnerShare: Number(leader.share.toFixed(1)),
+    winnerShare: Number(leader._exactShare.toFixed(1)),
     winnerVotes: leader.votes,
     candidates: candidates
   };
+  if (leader._hasOfficialShare) {
+    payload.officialWinnerShare = true;
+  }
+  return payload;
 }
 
 /**
@@ -340,6 +426,14 @@ function writeFirestoreDocument_(docPath, data) {
 }
 
 function getFirestoreAccessToken_() {
+  const cache = typeof CacheService !== "undefined" ? CacheService.getScriptCache() : null;
+  if (cache) {
+    const cachedToken = cache.get("FIRESTORE_ACCESS_TOKEN");
+    if (cachedToken) {
+      return cachedToken;
+    }
+  }
+
   const props = PropertiesService.getScriptProperties();
   const clientEmail = props.getProperty("FIREBASE_CLIENT_EMAIL");
   const rawKey = props.getProperty("FIREBASE_PRIVATE_KEY");
@@ -379,7 +473,11 @@ function getFirestoreAccessToken_() {
   if (tokenCode !== 200) {
     throw new Error("取得 Google OAuth Token 失敗 (" + tokenCode + "): " + tokenRes.getContentText());
   }
-  return JSON.parse(tokenRes.getContentText()).access_token;
+  const accessToken = JSON.parse(tokenRes.getContentText()).access_token;
+  if (cache && accessToken) {
+    cache.put("FIRESTORE_ACCESS_TOKEN", accessToken, 3000); // 快取 50 分鐘（Token 效期 60 分鐘）
+  }
+  return accessToken;
 }
 
 function toFirestoreMapFields_(obj) {

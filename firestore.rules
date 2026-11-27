@@ -1,0 +1,56 @@
+rules_version = '2';
+
+// 2026 九合一選舉預測大賽 Firestore 安全規則
+// 請貼至 Firebase Console -> Firestore Database -> 規則 (Rules) 並發布
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == "redteaplz@gmail.com";
+    }
+
+    function isGameOpenForPrediction(gameId) {
+      let game = get(/databases/$(database)/documents/games/$(gameId)).data;
+      return game.settled != true
+        && (
+          game.type != "official"
+          || !(game.lockAtMs is number)
+          || request.time.toMillis() < game.lockAtMs
+        );
+    }
+
+    // 賽局設定與結算快照（所有人可讀；僅管理員可新增、修改、刪除）
+    match /games/{gameId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+
+      // 玩家預測（所有人可讀；鎖單與結算前可新增，同一 ownerToken 才可覆寫更新；管理員可刪除清理）
+      match /predictions/{predId} {
+        allow read: if true;
+        allow create: if isGameOpenForPrediction(gameId)
+          && request.resource.data.nickname is string
+          && request.resource.data.nickname.size() >= 1
+          && request.resource.data.nickname.size() <= 20
+          && request.resource.data.cities is map;
+        allow update: if isGameOpenForPrediction(gameId)
+          && request.resource.data.nickname is string
+          && request.resource.data.nickname.size() >= 1
+          && request.resource.data.nickname.size() <= 20
+          && request.resource.data.cities is map
+          && (
+            !("ownerToken" in resource.data)
+            || resource.data.ownerToken == ""
+            || resource.data.ownerToken == request.resource.data.ownerToken
+          );
+        allow delete: if isAdmin();
+      }
+    }
+
+    // 開票結果資料庫（2026 正式與 2026_sim 模擬：GAS Service Account 不受 Rules 限制；前端僅管理員可寫）
+    match /official_results/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

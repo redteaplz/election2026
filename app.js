@@ -24,7 +24,6 @@ import {
   saveGamePrediction,
   subscribeGamePredictions,
   saveTestGameResults,
-  saveOfficialResults,
   settleOfficialGame,
   subscribeOfficialResults,
   subscribeSimulatedResults,
@@ -55,6 +54,9 @@ let storageMode = "local";
 let allGames = [];
 let activeGameId = null;
 let currentPredictions = [];
+let predictionsLoaded = false;
+let isPredictFormDirty = false;
+let isResultsFormDirty = false;
 let officialResults = { cities: {} };
 let simulatedResults = { cities: {}, isSimulated: true };
 let unsubscribePredictions = null;
@@ -147,6 +149,14 @@ function getActiveGame() {
   return allGames.find((g) => g.id === activeGameId) || null;
 }
 
+function getRawDbResultsForGame(game) {
+  if (!game || !shouldConnectFirebaseResults(game)) return null;
+  const source = getGameResultSource(game);
+  if (source === RESULT_SOURCES.OFFICIAL_DB) return officialResults || { cities: {} };
+  if (source === RESULT_SOURCES.SIM_DB) return simulatedResults || { cities: {}, isSimulated: true };
+  return null;
+}
+
 function getActiveGameResults() {
   const game = getActiveGame();
   if (!game) return { cities: {} };
@@ -174,28 +184,38 @@ function getActiveGameResults() {
   return simulatedResults || { cities: {}, isSimulated: true };
 }
 
+function maybeSyncResultsForm(citiesMap) {
+  if (!isResultsFormDirty || viewSections.results.hidden) {
+    syncResultsFormFromData(citiesMap || {});
+  }
+}
+
 /**
- * 動態管理 Firebase 開票資料庫連線：
+ * 動態管理 Firebase 開票資料庫連線（僅針對當前進入的賽局按需訂閱，避免大廳或其他賽局消耗額外讀取）：
  * - 正式賽局在鎖單時間到達後才開始連接 Firebase 開票資料
  * - 測試賽局若選擇 Firebase 來源則立即連線
- * - 純手動或已結算賽局不建立開票資料連線
+ * - 純手動、未進入賽局或已結算賽局不建立開票資料連線
  */
 function syncLiveResultSubscriptions() {
-  const needOfficial = allGames.some(
-    (g) => getGameResultSource(g) === RESULT_SOURCES.OFFICIAL_DB && shouldConnectFirebaseResults(g)
+  const active = getActiveGame();
+  const needOfficial = Boolean(
+    active &&
+      getGameResultSource(active) === RESULT_SOURCES.OFFICIAL_DB &&
+      shouldConnectFirebaseResults(active)
   );
-  const needSim = allGames.some(
-    (g) => getGameResultSource(g) === RESULT_SOURCES.SIM_DB && shouldConnectFirebaseResults(g)
+  const needSim = Boolean(
+    active &&
+      getGameResultSource(active) === RESULT_SOURCES.SIM_DB &&
+      shouldConnectFirebaseResults(active)
   );
 
   if (needOfficial && !unsubscribeOfficialResults) {
     unsubscribeOfficialResults = subscribeOfficialResults((data) => {
       officialResults = data || { cities: {} };
-      renderLobby();
-      const active = getActiveGame();
-      if (active && getGameResultSource(active) === RESULT_SOURCES.OFFICIAL_DB && shouldConnectFirebaseResults(active)) {
+      const curr = getActiveGame();
+      if (curr && getGameResultSource(curr) === RESULT_SOURCES.OFFICIAL_DB && shouldConnectFirebaseResults(curr)) {
         updateActiveGameUI();
-        syncResultsFormFromData(getActiveGameResults().cities || {});
+        maybeSyncResultsForm(getActiveGameResults().cities);
         renderLeaderboard();
       }
     });
@@ -208,11 +228,10 @@ function syncLiveResultSubscriptions() {
   if (needSim && !unsubscribeSimulatedResults) {
     unsubscribeSimulatedResults = subscribeSimulatedResults((data) => {
       simulatedResults = data || { cities: {}, isSimulated: true };
-      renderLobby();
-      const active = getActiveGame();
-      if (active && getGameResultSource(active) === RESULT_SOURCES.SIM_DB && shouldConnectFirebaseResults(active)) {
+      const curr = getActiveGame();
+      if (curr && getGameResultSource(curr) === RESULT_SOURCES.SIM_DB && shouldConnectFirebaseResults(curr)) {
         updateActiveGameUI();
-        syncResultsFormFromData(getActiveGameResults().cities || {});
+        maybeSyncResultsForm(getActiveGameResults().cities);
         renderLeaderboard();
       }
     });
@@ -274,7 +293,7 @@ async function bootstrap() {
           leaveGame();
         } else {
           updateActiveGameUI();
-          syncResultsFormFromData(getActiveGameResults().cities || {});
+          maybeSyncResultsForm(getActiveGameResults().cities);
           renderLeaderboard();
         }
       }
@@ -374,8 +393,48 @@ function switchView(target) {
   });
 }
 
+function findMyPrediction(list) {
+  const myToken = getOrCreatePlayerToken();
+  const myNickname = getSavedNickname().trim().toLowerCase();
+  return (
+    list.find((p) => p.ownerToken && p.ownerToken === myToken) ||
+    list.find((p) => !p.ownerToken && myNickname && p.nickname?.trim().toLowerCase() === myNickname) ||
+    null
+  );
+}
+
+function syncPredictFormFromData(citiesMap) {
+  for (const city of CONSTITUENCIES) {
+    const saved = citiesMap?.[city.id];
+    const radios = document.querySelectorAll(`input[name="pred-winner-${city.id}"]`);
+    radios.forEach((r) => {
+      r.checked = saved ? r.value === saved.winnerId : false;
+    });
+    if (city.type === "mayor") {
+      setCityShare("pred", city.id, saved?.winnerShare ?? 50);
+    }
+  }
+}
+
+function clearBanner(el) {
+  if (!el) return;
+  el.textContent = "";
+  el.className = "status-banner";
+}
+
 function enterGame(gameId, defaultView = "predict") {
   activeGameId = gameId;
+  predictionsLoaded = false;
+  isPredictFormDirty = false;
+  isResultsFormDirty = false;
+  expandedResultCities.clear();
+
+  clearBanner(predictStatus);
+  clearBanner(resultsStatus);
+  nicknameError.textContent = "";
+  nicknameInput.removeAttribute("aria-invalid");
+  nicknameInput.value = getSavedNickname();
+  syncPredictFormFromData(null);
 
   // Update URL without losing ?admin=1
   const nextUrl = new URL(window.location.href);
@@ -387,6 +446,8 @@ function enterGame(gameId, defaultView = "predict") {
   navResultsBtn.hidden = !isAuthorizedAdmin;
   activeGameBar.hidden = false;
 
+  syncLiveResultSubscriptions();
+
   if (unsubscribePredictions) {
     unsubscribePredictions();
     unsubscribePredictions = null;
@@ -394,6 +455,14 @@ function enterGame(gameId, defaultView = "predict") {
   currentPredictions = [];
   unsubscribePredictions = subscribeGamePredictions(gameId, (list) => {
     currentPredictions = list;
+    predictionsLoaded = true;
+    if (!isPredictFormDirty) {
+      const myPred = findMyPrediction(list);
+      if (myPred) {
+        nicknameInput.value = myPred.nickname || getSavedNickname();
+        syncPredictFormFromData(myPred.cities || {});
+      }
+    }
     renderLeaderboard();
   });
 
@@ -403,18 +472,27 @@ function enterGame(gameId, defaultView = "predict") {
   renderLeaderboard();
 
   const game = getActiveGame();
-  const isReadOnlyPredict = game && (isGameSettled(game, officialResults) || isGameLocked(game));
+  const isReadOnlyPredict = game && (isGameSettled(game) || isGameLocked(game));
   const targetView = isReadOnlyPredict && defaultView === "predict" ? "leaderboard" : defaultView;
   switchView(targetView);
 }
 
 function leaveGame() {
   activeGameId = null;
+  predictionsLoaded = false;
+  isPredictFormDirty = false;
+  isResultsFormDirty = false;
+  expandedResultCities.clear();
+
   if (unsubscribePredictions) {
     unsubscribePredictions();
     unsubscribePredictions = null;
   }
   currentPredictions = [];
+  syncLiveResultSubscriptions();
+
+  clearBanner(predictStatus);
+  clearBanner(resultsStatus);
 
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.delete("game");
@@ -755,7 +833,7 @@ function renderCityCards(container, prefix) {
       range.id = `${prefix}-range-${city.id}`;
       range.min = "0";
       range.max = "100";
-      range.step = "0.5";
+      range.step = "0.1";
       range.value = "50";
       range.setAttribute("aria-label", `${city.name} 當選人得票率滑桿`);
 
@@ -834,7 +912,7 @@ function readCitiesFromForm(prefix, { requireAll }) {
       const winnerShare = clampShare(shareInput.value);
       if (winnerShare <= 0 || winnerShare > 100) {
         return {
-          error: `請輸入「${city.name}」有效的得票率（1% ~ 100%）。`,
+          error: `請輸入「${city.name}」有效的得票率（0.1% ~ 100%）。`,
           focusEl: shareInput
         };
       }
@@ -847,8 +925,81 @@ function readCitiesFromForm(prefix, { requireAll }) {
   return { data: citiesData, error: null };
 }
 
+/**
+ * 將管理員表單送出的資料與當前雲端完整候選人票數合併：
+ * - 若管理員未更動該選區當選人/得票率，直接保留完整 candidates 陣列與票數
+ * - 若管理員手動覆寫了該選區結果，標記 manualOverride: true，同時仍保留 candidates 陣列供展開檢視
+ */
+function buildMergedResultsForAdminSave(game, formCities) {
+  const rawDb = getRawDbResultsForGame(game);
+  const currentActive = getActiveGameResults();
+  const baseSource = rawDb && Object.keys(rawDb.cities || {}).length > 0 ? rawDb : currentActive;
+  const mergedCities = {};
+
+  for (const city of CONSTITUENCIES) {
+    const formCity = formCities[city.id];
+    if (!formCity) continue;
+
+    const baseCity =
+      rawDb?.cities?.[city.id] ||
+      game?.testResults?.cities?.[city.id] ||
+      currentActive?.cities?.[city.id];
+
+    if (baseCity && Array.isArray(baseCity.candidates) && baseCity.candidates.length > 0) {
+      const autoOutcome = resolveCityOutcome(city, { ...baseCity, manualOverride: false });
+      const sameWinner = autoOutcome.hasResult && autoOutcome.winnerId === formCity.winnerId;
+      const sameShare =
+        city.type === "yesno" ||
+        (typeof autoOutcome.winnerShare === "number" &&
+          Math.abs(autoOutcome.winnerShare - formCity.winnerShare) < 0.05);
+
+      if (sameWinner && sameShare) {
+        const cleaned = { ...baseCity };
+        delete cleaned.manualOverride;
+        mergedCities[city.id] = cleaned;
+      } else {
+        mergedCities[city.id] = {
+          ...baseCity,
+          winnerId: formCity.winnerId,
+          ...(city.type === "mayor" ? { winnerShare: formCity.winnerShare } : {}),
+          manualOverride: true
+        };
+      }
+    } else {
+      mergedCities[city.id] = formCity;
+    }
+  }
+
+  const extraMeta = {};
+  if (typeof baseSource?.countingProgress === "number") {
+    extraMeta.countingProgress = baseSource.countingProgress;
+  }
+  if (baseSource?.isSimulated) {
+    extraMeta.isSimulated = true;
+  }
+  if (baseSource?.source) {
+    extraMeta.source = baseSource.source;
+  }
+
+  return { cities: mergedCities, extraMeta };
+}
+
 // 5. Form Handlers
 function setupFormHandlers() {
+  predictForm.addEventListener("input", () => {
+    isPredictFormDirty = true;
+  });
+  predictForm.addEventListener("change", () => {
+    isPredictFormDirty = true;
+  });
+
+  resultsForm.addEventListener("input", () => {
+    isResultsFormDirty = true;
+  });
+  resultsForm.addEventListener("change", () => {
+    isResultsFormDirty = true;
+  });
+
   nicknameInput.addEventListener("blur", () => {
     if (nicknameInput.value.trim() === "") {
       nicknameInput.setAttribute("aria-invalid", "true");
@@ -871,7 +1022,7 @@ function setupFormHandlers() {
       setStatus(predictStatus, "請先從賽局大廳選擇一場賽局。", "error");
       return;
     }
-    if (isGameSettled(game, officialResults)) {
+    if (isGameSettled(game)) {
       updateActiveGameUI();
       setStatus(predictStatus, "此賽局已結算計分（歷史賽局），無法再新增或修改預測。", "error");
       return;
@@ -879,6 +1030,10 @@ function setupFormHandlers() {
     if (isGameLocked(game)) {
       updateActiveGameUI();
       setStatus(predictStatus, "此正式賽局已截止鎖單，無法送出或修改預測。", "error");
+      return;
+    }
+    if (!predictionsLoaded) {
+      setStatus(predictStatus, "正在同步本局名單，請稍候 1 秒再送出。", "error");
       return;
     }
 
@@ -896,7 +1051,7 @@ function setupFormHandlers() {
     const existing = currentPredictions.find(
       (p) => p.id === targetDocId || p.nickname?.trim().toLowerCase() === nickname.toLowerCase()
     );
-    if (existing && existing.ownerToken !== myToken) {
+    if (existing && existing.ownerToken && existing.ownerToken !== myToken) {
       nicknameInput.setAttribute("aria-invalid", "true");
       nicknameError.textContent = `暱稱「${nickname}」已被其他玩家使用，請換一個暱稱。`;
       nicknameInput.focus();
@@ -915,49 +1070,56 @@ function setupFormHandlers() {
     try {
       await saveGamePrediction(game.id, nickname, parsed.data, myToken);
       localStorage.setItem(MY_NICKNAME_KEY, nickname);
+      isPredictFormDirty = false;
       setStatus(predictStatus, `已成功儲存「${nickname}」在「${game.title}」的預測！`, "success");
     } catch (err) {
       setStatus(predictStatus, `儲存失敗：${err.message}`, "error");
     } finally {
-      submitPredictBtn.disabled = isGameSettled(game, officialResults) || isGameLocked(game);
+      submitPredictBtn.disabled = isGameSettled(game) || isGameLocked(game);
     }
   });
 
   // Simulate random actual results (Test games only, before settlement)
   simulateResultsBtn.addEventListener("click", () => {
     const game = getActiveGame();
-    if (!game || isGameSettled(game, officialResults)) return;
+    if (!game || isGameSettled(game)) return;
+    isResultsFormDirty = true;
     fillRandomResults();
-    setStatus(resultsStatus, "已隨機產生模擬開票數據，點擊「儲存開票結果並結算分數」即可完成結算！", "success");
+    setStatus(resultsStatus, "已隨機產生模擬開票數據，可點「暫存手動開票」或「儲存開票結果並結算分數」！", "success");
   });
 
-  // Clear results form (Admin, before settlement)
+  // Clear manual override results for this game only (never wipes global official_results/2026)
   clearResultsBtn.addEventListener("click", async () => {
     const game = getActiveGame();
     if (!game) return;
-    if (isGameSettled(game, officialResults)) {
+    if (isGameSettled(game)) {
       updateActiveGameUI();
       setStatus(resultsStatus, "此賽局已完成結算（歷史賽局），不可清空或修改開票數據。", "error");
       return;
     }
-    syncResultsFormFromData({});
     try {
       await saveTestGameResults(game.id, {}, { settle: false });
+      isResultsFormDirty = false;
+      syncResultsFormFromData(getActiveGameResults().cities || {});
+      renderLeaderboard();
       const source = getGameResultSource(game);
-      if (game.type === "official" && source === RESULT_SOURCES.OFFICIAL_DB && shouldConnectFirebaseResults(game)) {
-        await saveOfficialResults({});
-      }
-      setStatus(resultsStatus, "已清空手動開票數據。", "success");
+      setStatus(
+        resultsStatus,
+        source === RESULT_SOURCES.MANUAL
+          ? "已清空本局手動開票數據。"
+          : `已清除本局手動覆寫，恢復同步「${getResultSourceLabel(source)}」。`,
+        "success"
+      );
     } catch (err) {
       setStatus(resultsStatus, `清空失敗：${err.message}`, "error");
     }
   });
 
-  // Save manual results without settling (works for A, B, and C sources)
+  // Save manual results without settling (works for A, B, and C sources while preserving candidate arrays)
   saveDraftResultsBtn.addEventListener("click", async () => {
     const game = getActiveGame();
     if (!game) return;
-    if (isGameSettled(game, officialResults)) {
+    if (isGameSettled(game)) {
       updateActiveGameUI();
       setStatus(resultsStatus, "此賽局已完成結算（歷史賽局），不可修改開票數據。", "error");
       return;
@@ -976,9 +1138,14 @@ function setupFormHandlers() {
       return;
     }
 
+    const merged = buildMergedResultsForAdminSave(game, parsed.data);
     saveDraftResultsBtn.disabled = true;
     try {
-      await saveTestGameResults(game.id, parsed.data, { settle: false });
+      await saveTestGameResults(game.id, merged.cities, {
+        settle: false,
+        extraMeta: merged.extraMeta
+      });
+      isResultsFormDirty = false;
       setStatus(
         resultsStatus,
         `已暫存手動開票結果（共 ${count} 題，尚未結算封存），分數排行已即時更新！`,
@@ -988,17 +1155,17 @@ function setupFormHandlers() {
     } catch (err) {
       setStatus(resultsStatus, `暫存失敗：${err.message}`, "error");
     } finally {
-      saveDraftResultsBtn.disabled = isGameSettled(getActiveGame(), officialResults);
+      saveDraftResultsBtn.disabled = isGameSettled(getActiveGame());
     }
   });
 
-  // Submit actual results & finalize game as historical (Admin)
+  // Submit actual results & finalize game as historical (preserves full candidate votes/shares & never overwrites global official_results/2026)
   resultsForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const game = getActiveGame();
     if (!game) return;
 
-    if (isGameSettled(game, officialResults)) {
+    if (isGameSettled(game)) {
       updateActiveGameUI();
       setStatus(resultsStatus, "此賽局已完成結算（歷史賽局），無法再次修改或重新結算。", "error");
       return;
@@ -1022,14 +1189,19 @@ function setupFormHandlers() {
     );
     if (!confirmed) return;
 
+    const merged = buildMergedResultsForAdminSave(game, parsed.data);
     submitResultsBtn.disabled = true;
     try {
       const source = getGameResultSource(game);
       if (game.type === "official" && source === RESULT_SOURCES.OFFICIAL_DB) {
-        await settleOfficialGame(game.id, parsed.data);
+        await settleOfficialGame(game.id, merged.cities, merged.extraMeta);
       } else {
-        await saveTestGameResults(game.id, parsed.data, { settle: true });
+        await saveTestGameResults(game.id, merged.cities, {
+          settle: true,
+          extraMeta: merged.extraMeta
+        });
       }
+      isResultsFormDirty = false;
       setStatus(
         resultsStatus,
         `已完成賽局結算（共 ${count} 題），本賽局已歸檔為歷史賽局！`,
@@ -1042,7 +1214,7 @@ function setupFormHandlers() {
     } catch (err) {
       setStatus(resultsStatus, `儲存失敗：${err.message}`, "error");
     } finally {
-      submitResultsBtn.disabled = isGameSettled(getActiveGame(), officialResults);
+      submitResultsBtn.disabled = isGameSettled(getActiveGame());
     }
   });
 
@@ -1093,7 +1265,7 @@ function setStatus(el, msg, type) {
 // 6. Leaderboard & Live Results Rendering
 function renderLiveResultsPanel(game, activeResults) {
   const citiesMap = activeResults?.cities || {};
-  const isSettled = Boolean(game && game.settledResults?.cities && Object.keys(game.settledResults.cities).length > 0);
+  const isSettled = isGameSettled(game);
   const source = getGameResultSource(game);
   const waitingForLock = Boolean(activeResults?.waitingForLock);
 
@@ -1349,17 +1521,30 @@ function renderLeaderboard() {
       if (b.summary.totalScore !== a.summary.totalScore) {
         return b.summary.totalScore - a.summary.totalScore;
       }
-      if (a.summary.totalError !== b.summary.totalError) {
-        return a.summary.totalError - b.summary.totalError;
+      if (b.summary.winnerHits !== a.summary.winnerHits) {
+        return b.summary.winnerHits - a.summary.winnerHits;
       }
-      return b.summary.winnerHits - a.summary.winnerHits;
+      return a.summary.totalError - b.summary.totalError;
     });
 
   const myToken = getOrCreatePlayerToken();
   const myNickname = getSavedNickname().toLowerCase();
+  let prevRankNum = 1;
 
   ranked.forEach(({ pred, summary }, index) => {
-    const rankNum = index + 1;
+    let rankNum = index + 1;
+    if (openedCount > 0 && index > 0) {
+      const prev = ranked[index - 1].summary;
+      if (
+        prev.totalScore === summary.totalScore &&
+        prev.winnerHits === summary.winnerHits &&
+        prev.totalError === summary.totalError
+      ) {
+        rankNum = prevRankNum;
+      }
+    }
+    prevRankNum = rankNum;
+
     const isSelf = Boolean(
       (pred.ownerToken && pred.ownerToken === myToken) ||
       (!pred.ownerToken && myNickname && pred.nickname?.trim().toLowerCase() === myNickname)
@@ -1368,12 +1553,12 @@ function renderLeaderboard() {
     const li = document.createElement("li");
     li.className = "leaderboard-row";
     if (isSelf) li.classList.add("is-self");
-    if (rankNum <= 3) li.classList.add(`rank-${rankNum}`);
+    if (openedCount > 0 && rankNum <= 3) li.classList.add(`rank-${rankNum}`);
 
     const rankEl = document.createElement("div");
     rankEl.className = "rank-badge";
-    rankEl.textContent = `#${rankNum}`;
-    rankEl.setAttribute("aria-label", `第 ${rankNum} 名`);
+    rankEl.textContent = openedCount > 0 ? `#${rankNum}` : "—";
+    rankEl.setAttribute("aria-label", openedCount > 0 ? `第 ${rankNum} 名` : "尚未開票");
 
     const playerEl = document.createElement("div");
     playerEl.className = "player-meta";
@@ -1395,7 +1580,7 @@ function renderLeaderboard() {
     statsEl.className = "player-stats";
     statsEl.textContent =
       openedCount > 0
-        ? `命中 ${summary.winnerHits}/${summary.scoredCities} 題｜誤差 ±${summary.totalError}%`
+        ? `命中 ${summary.winnerHits}/${summary.scoredCities} 題｜命中誤差 ±${summary.totalError}%`
         : "待開票";
 
     playerEl.append(nameRow, statsEl);
@@ -1488,8 +1673,10 @@ function openPlayerDetail(pred, summary) {
     if (cityResult) {
       if (city.type === "yesno") {
         badge.textContent = `${cityResult.winnerHit ? "預測成功" : "預測失敗"}｜+${cityResult.totalPoints} 分`;
+      } else if (cityResult.winnerHit) {
+        badge.textContent = `猜中當選人｜誤差 ${cityResult.errorSum}%｜+${cityResult.totalPoints} 分`;
       } else {
-        badge.textContent = `${cityResult.winnerHit ? "猜中當選人" : "未中當選人"}｜誤差 ${cityResult.errorSum}%｜+${cityResult.totalPoints} 分`;
+        badge.textContent = "未中當選人｜+0 分";
       }
       badge.style.color = cityResult.winnerHit ? "var(--success)" : "var(--danger)";
     } else {

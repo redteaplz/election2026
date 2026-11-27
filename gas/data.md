@@ -195,10 +195,13 @@
 ## 5. 開票當天與中選會資料對接步驟
 
 1. 在 [`gas/Code.gs`](./Code.gs) 將 `CONFIG.MODE` 改為 `"official"`，並將中選會公開 JSON 端點填入 `CONFIG.CEC_JSON_URL`。
-2. 在 `fetchCecOfficialResults_()` 中解析中選會 JSON，依「號次 (`no`)」或「候選人姓名」對應成 `{ [candidateId]: votes }` 物件。
-3. 呼叫內建的 `buildCityResultPayload_(cityId, votesMap)`，即會自動完成：
-   - 計算各選區 `totalVotes` 與每位候選人的 `share`（得票率 %）
+2. 在 `fetchCecOfficialResults_()` 中解析中選會 JSON，依「號次 (`no`)」或「候選人姓名」對應成 `inputMap`：
+   - **僅傳票數**：`{ "tpe-5": 472360, "tpe-3": 421400, ... }`
+   - **連同中選會官方得票率／當選註記一併傳入（選填）**：`{ "tyc1-12": { votes: 9800, share: 5.12, elected: true }, ... }`（可完美對應婦女保障名額等中選會最終當選註記）
+3. 呼叫內建的 `buildCityResultPayload_(cityId, inputMap, { validVotes })`，即會自動完成：
+   - **0 票防呆**：若該選區目前全體票數與得票率皆為 `0`，自動設 `winnerId: null`，前端維持顯示「尚未開票」（不會誤判 1 號或王妃當選）
+   - 計算各選區 `totalVotes` 與每位候選人的 `share`（避免二次四捨五入誤差）
    - 依得票率由高到低排序 `candidates`
    - 推算縣市長 `winnerId` / `winnerShare` / `winnerVotes`
-   - 推算桃園第1選區王妃名次 `targetRank` 與 `winnerId ("yes" | "no")`
-4. 回傳 `{ isSimulated: false, source: "cec-official", countingProgress, updatedAt, cities }`，由 `runLiveUpdate()` 自動寫入 `official_results/2026`。
+   - 推算桃園第1選區王妃名次 `targetRank` 與 `winnerId ("yes" | "no")`（若有傳入官方 `elected` 布林值則優先採用）
+4. 回傳 `{ isSimulated: false, source: "cec-official", countingProgress, updatedAt, cities }`，由 `runLiveUpdate()`（內建 `LockService` 防重疊鎖與 `CacheService` 50 分鐘 Token 快取）自動寫入 `official_results/2026`。
