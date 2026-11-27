@@ -509,6 +509,13 @@ input[aria-invalid="true"] {
   border-radius: var(--radius);
 }
 
+.form-footer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
 .status-banner {
   font-weight: 700;
   min-height: 1.4rem;
@@ -533,7 +540,13 @@ input[aria-invalid="true"] {
     align-items: stretch;
   }
 
-  .form-footer .btn-lg {
+  .form-footer-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .form-footer .btn-lg,
+  .form-footer-actions .btn {
     width: 100%;
   }
 
