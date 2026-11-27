@@ -175,7 +175,8 @@ body {
   margin-block-end: 1.25rem;
 }
 
-.rules-card h2 {
+.rules-card h2,
+.rules-card h3 {
   margin: 0 0 0.45rem;
   font-size: 1.08rem;
   color: var(--brothers-navy);

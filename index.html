@@ -162,6 +162,15 @@
         </div>
       </div>
 
+      <div class="rules-card" aria-labelledby="predict-rules-heading">
+        <h3 id="predict-rules-heading">計分規則與得票率說明</h3>
+        <ul class="rules-list">
+          <li><strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 4</code>，誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。</li>
+          <li><strong>桃園區議員特別題（滿分 60 分）</strong>：預測 12 號「王妃」是否會進入該選區前 12 高得票率當選，預測成功即 <strong>+60 分</strong>。</li>
+          <li><strong>什麼是「得票率」？</strong>：<code>候選人得票數 ÷ 該選區總有效票數 × 100%</code>（所有候選人得票率加總為 100%）。例如某市有效票 100 萬票、A 候選人拿 48 萬票，得票率即為 <strong>48%</strong>；若該區有多位主要候選人分票，當選得票率也可能低於 50%。</li>
+        </ul>
+      </div>
+
       <form id="predict-form" aria-labelledby="predict-heading" novalidate>
         <div class="player-card">
           <div class="field">
@@ -283,7 +292,7 @@
   <footer class="site-footer">
     <div class="container">
       <span>2026 九合一選舉預測大賽</span>
-      <span class="version-tag">版本：v1.5.1</span>
+      <span class="version-tag">版本：v1.5.2</span>
     </div>
   </footer>
 
