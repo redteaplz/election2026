@@ -146,11 +146,23 @@ export async function createGame({ title, type, lockAt, resultSource, useLiveSim
 }
 
 /**
- * 刪除賽局（管理員）
+ * 刪除賽局（管理員）：一併清理底下 predictions 子集合，避免殘留孤兒文件
  */
 export async function deleteGame(gameId) {
   if (mode === "firebase" && db && firestoreApi) {
-    const { doc, deleteDoc } = firestoreApi;
+    const { collection, doc, getDocs, writeBatch, deleteDoc } = firestoreApi;
+    try {
+      const predsSnap = await getDocs(collection(db, "games", gameId, "predictions"));
+      if (!predsSnap.empty) {
+        const batch = writeBatch(db);
+        predsSnap.forEach((predDoc) => batch.delete(predDoc.ref));
+        batch.delete(doc(db, "games", gameId));
+        await batch.commit();
+        return;
+      }
+    } catch (subErr) {
+      console.warn("批次清理預測子集合失敗，改為直接刪除賽局文件：", subErr);
+    }
     await deleteDoc(doc(db, "games", gameId));
     return;
   }
@@ -163,15 +175,26 @@ export async function deleteGame(gameId) {
   window.dispatchEvent(new CustomEvent("local-storage-updated"));
 }
 
+/**
+ * 將暱稱轉換為合法且零碰撞的 Firestore Document ID：
+ * - 純英數、常見漢字、底線、連字號維持原字串（100% 相容既有資料）
+ * - 含 Emoji、注音、符號、空白或特殊字元時，附加確定性 Unicode 編碼尾綴避免撞號
+ */
 export function normalizeNicknameId(nickname) {
-  return nickname
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9\u4e00-\u9fa5_-]/g, "_");
+  const lowered = String(nickname || "").trim().toLowerCase();
+  if (!lowered) return "empty";
+  if (/^[a-z0-9\u4e00-\u9fa5_-]+$/.test(lowered)) {
+    return lowered;
+  }
+  const safePrefix = lowered.replace(/[^a-z0-9\u4e00-\u9fa5_-]/g, "_").slice(0, 24);
+  const codeHex = Array.from(lowered)
+    .map((ch) => ch.codePointAt(0).toString(36))
+    .join("-");
+  return `u_${safePrefix}_${codeHex}`;
 }
 
 /**
- * 儲存或更新指定賽局的玩家預測
+ * 儲存或更新指定賽局的玩家預測（透過 Transaction 防止同名競態覆蓋）
  */
 export async function saveGamePrediction(gameId, nickname, cities, ownerToken = "") {
   const cleanName = nickname.trim();
@@ -185,15 +208,30 @@ export async function saveGamePrediction(gameId, nickname, cities, ownerToken = 
   };
 
   if (mode === "firebase" && db && firestoreApi) {
-    const { doc, setDoc } = firestoreApi;
-    await setDoc(doc(db, "games", gameId, "predictions", docId), payload);
+    const { doc, runTransaction } = firestoreApi;
+    const predRef = doc(db, "games", gameId, "predictions", docId);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(predRef);
+      if (snap.exists()) {
+        const existing = snap.data();
+        if (existing.ownerToken && existing.ownerToken !== ownerToken) {
+          throw new Error(`暱稱「${cleanName}」已被其他玩家使用，請換一個暱稱。`);
+        }
+      }
+      tx.set(predRef, payload);
+    });
     return payload;
   }
 
   const predsMap = readLocalPredictionsMap();
   const list = predsMap[gameId] || [];
-  const idx = list.findIndex((item) => item.id === docId);
+  const idx = list.findIndex(
+    (item) => item.id === docId || item.nickname?.trim().toLowerCase() === cleanName.toLowerCase()
+  );
   if (idx >= 0) {
+    if (list[idx].ownerToken && list[idx].ownerToken !== ownerToken) {
+      throw new Error(`暱稱「${cleanName}」已被其他玩家使用，請換一個暱稱。`);
+    }
     list[idx] = payload;
   } else {
     list.push(payload);
@@ -235,11 +273,13 @@ export function subscribeGamePredictions(gameId, callback) {
 /**
  * 儲存單一賽局的手動開票結果（支援僅更新暫存或結算為歷史賽局）
  */
-export async function saveTestGameResults(gameId, cities, { settle = true } = {}) {
+export async function saveTestGameResults(gameId, cities, { settle = true, extraMeta = {} } = {}) {
   const now = new Date().toISOString();
+  const hasCities = Object.keys(cities || {}).length > 0;
   const testResults = {
+    ...(hasCities ? extraMeta : {}),
     cities,
-    updatedAt: Object.keys(cities || {}).length > 0 ? now : null
+    updatedAt: hasCities ? now : null
   };
   const updates = settle
     ? { testResults, settledResults: testResults, settled: true, settledAt: now }
@@ -262,7 +302,7 @@ export async function saveTestGameResults(gameId, cities, { settle = true } = {}
 }
 
 /**
- * 儲存「官方開票結果」（所有正式賽局共用）
+ * 儲存「官方開票結果」（供後端或管理員明確更新共用開票文件時使用）
  */
 export async function saveOfficialResults(cities) {
   const payload = {
@@ -272,7 +312,7 @@ export async function saveOfficialResults(cities) {
 
   if (mode === "firebase" && db && firestoreApi) {
     const { doc, setDoc } = firestoreApi;
-    await setDoc(doc(db, "official_results", "2026"), payload);
+    await setDoc(doc(db, "official_results", "2026"), payload, { merge: true });
     return payload;
   }
 
@@ -282,20 +322,25 @@ export async function saveOfficialResults(cities) {
 }
 
 /**
- * 結算「正式賽局」：寫入官方開票結果並將該賽局標記為已結算歷史賽局
+ * 結算賽局並封存完整開票快照（包含完整候選人票數與排名），絕不反向覆蓋破壞全域 official_results/2026
  */
-export async function settleOfficialGame(gameId, cities) {
-  const payload = await saveOfficialResults(cities);
+export async function settleOfficialGame(gameId, cities, extraMeta = {}) {
+  const now = new Date().toISOString();
+  const settledResults = {
+    ...extraMeta,
+    cities,
+    updatedAt: now
+  };
   const updates = {
     settled: true,
-    settledAt: payload.updatedAt,
-    settledResults: payload
+    settledAt: now,
+    settledResults
   };
 
   if (mode === "firebase" && db && firestoreApi) {
     const { doc, setDoc } = firestoreApi;
     await setDoc(doc(db, "games", gameId), updates, { merge: true });
-    return payload;
+    return settledResults;
   }
 
   const list = readLocalGames();
@@ -305,7 +350,7 @@ export async function settleOfficialGame(gameId, cities) {
     localStorage.setItem(LOCAL_GAMES_KEY, JSON.stringify(list));
     window.dispatchEvent(new CustomEvent("local-storage-updated"));
   }
-  return payload;
+  return settledResults;
 }
 
 /**
