@@ -23,6 +23,7 @@ const SIM_CANDIDATES = {
   taichung: ["txg-1", "txg-2", "txg-3"],
   tainan: ["tnn-1", "tnn-2", "tnn-3", "tnn-4"],
   kaohsiung: ["khh-1", "khh-2", "khh-3", "khh-4", "khh-5"],
+  hsinchu: ["hsz-1", "hsz-2", "hsz-3"],
   "taoyuan-c1": ["yes", "no"]
 };
 
@@ -90,7 +91,7 @@ function buildSimulatedPayload_() {
 
   const cities = {};
 
-  // 五都市長：模擬開票中領先者與得票率隨進度微幅變動
+  // 縣市長：模擬開票中領先者與得票率隨進度微幅變動
   const mayorWeights = {
     taipei: [
       { id: "tpe-5", base: 48 },
@@ -111,6 +112,10 @@ function buildSimulatedPayload_() {
     kaohsiung: [
       { id: "khh-5", base: 49 },
       { id: "khh-3", base: 45 }
+    ],
+    hsinchu: [
+      { id: "hsz-1", base: 46 },
+      { id: "hsz-3", base: 40 }
     ]
   };
 

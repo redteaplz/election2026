@@ -116,7 +116,8 @@ const submitResultsBtn = document.getElementById("submit-results-btn");
 
 // Leaderboard & Live Results
 const leaderboardSummary = document.getElementById("leaderboard-summary");
-const leaderboardTbody = document.getElementById("leaderboard-tbody");
+const leaderboardList = document.getElementById("leaderboard-list");
+const leaderboardMaxScore = document.getElementById("leaderboard-max-score");
 const resetLocalBtn = document.getElementById("reset-local-btn");
 const liveIndicator = document.getElementById("live-indicator");
 const liveIndicatorText = document.getElementById("live-indicator-text");
@@ -413,10 +414,10 @@ function updateActiveGameUI() {
   lockNoticeBanner.hidden = !predictBlocked;
   if (settled) {
     lockNoticeBanner.innerHTML =
-      "<strong>此賽局已完成結算（歷史賽局）！</strong> 無法再新增或修改預測，請切換至「排行榜與誤差分析」檢視賽局與分數。";
+      "<strong>此賽局已完成結算（歷史賽局）！</strong> 無法再新增或修改預測，請切換至「分數排行」檢視賽局與分數。";
   } else if (locked) {
     lockNoticeBanner.innerHTML =
-      "<strong>此正式賽局已鎖單！</strong> 已超過截止時間，無法再新增或修改預測。請切換至「排行榜與誤差分析」查看開票結果與排名。";
+      "<strong>此正式賽局已鎖單！</strong> 已超過截止時間，無法再新增或修改預測。請切換至「分數排行」查看開票結果與排名。";
   }
   submitPredictBtn.hidden = predictBlocked;
   predictForm.querySelectorAll("input, button[type='submit']").forEach((el) => {
@@ -1069,7 +1070,12 @@ function renderLiveResultsPanel(game, activeResults) {
 function renderLeaderboard() {
   const game = getActiveGame();
   const activeResults = getActiveGameResults();
-  const openedCount = Object.keys(activeResults?.cities || {}).length;
+  const openedCities = CONSTITUENCIES.filter((c) => Boolean(activeResults?.cities?.[c.id]?.winnerId));
+  const openedCount = openedCities.length;
+  const maxPossibleScore = openedCities.reduce(
+    (sum, city) => sum + (city.type === "yesno" ? 60 : 100),
+    0
+  );
 
   renderLiveResultsPanel(game, activeResults);
 
@@ -1087,15 +1093,15 @@ function renderLeaderboard() {
       ? `${simPrefix}「${game.title}」目前共有 ${currentPredictions.length} 位玩家完成預測（尚未開票）。`
       : `${simPrefix}「${game.title}」目前已開票 ${openedCount} / ${CONSTITUENCIES.length} 題，共有 ${currentPredictions.length} 位玩家參與排名${progressInfo}${updatedInfo}。`;
 
-  leaderboardTbody.replaceChildren();
+  leaderboardMaxScore.textContent = openedCount > 0 ? `目前滿分 ${maxPossibleScore} 分` : "尚未開票";
+
+  leaderboardList.replaceChildren();
 
   if (currentPredictions.length === 0) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 6;
-    td.textContent = "本賽局還沒有任何玩家預測，快到「我要預測」搶頭香吧！";
-    tr.appendChild(td);
-    leaderboardTbody.appendChild(tr);
+    const emptyLi = document.createElement("li");
+    emptyLi.className = "leaderboard-empty";
+    emptyLi.textContent = "本賽局還沒有任何玩家預測，快到「我要預測」搶頭香吧！";
+    leaderboardList.appendChild(emptyLi);
     return;
   }
 
@@ -1118,49 +1124,87 @@ function renderLeaderboard() {
   const myNickname = getSavedNickname().toLowerCase();
 
   ranked.forEach(({ pred, summary }, index) => {
+    const rankNum = index + 1;
     const isSelf = Boolean(
       (pred.ownerToken && pred.ownerToken === myToken) ||
       (!pred.ownerToken && myNickname && pred.nickname?.trim().toLowerCase() === myNickname)
     );
 
-    const tr = document.createElement("tr");
-    if (isSelf) {
-      tr.className = "is-self";
-    }
+    const li = document.createElement("li");
+    li.className = "leaderboard-row";
+    if (isSelf) li.classList.add("is-self");
+    if (rankNum <= 3) li.classList.add(`rank-${rankNum}`);
 
-    const rankTd = document.createElement("td");
-    rankTd.textContent = `#${index + 1}`;
+    const rankEl = document.createElement("div");
+    rankEl.className = "rank-badge";
+    rankEl.textContent = `#${rankNum}`;
+    rankEl.setAttribute("aria-label", `第 ${rankNum} 名`);
 
-    const nameTh = document.createElement("th");
-    nameTh.scope = "row";
-    nameTh.textContent = pred.nickname;
+    const playerEl = document.createElement("div");
+    playerEl.className = "player-meta";
+
+    const nameRow = document.createElement("div");
+    nameRow.className = "player-name";
+    const nameText = document.createElement("span");
+    nameText.textContent = pred.nickname;
+    nameRow.appendChild(nameText);
+
     if (isSelf) {
       const selfTag = document.createElement("span");
       selfTag.className = "self-badge";
       selfTag.textContent = "你";
-      nameTh.appendChild(selfTag);
+      nameRow.appendChild(selfTag);
     }
 
-    const hitsTd = document.createElement("td");
-    hitsTd.textContent = openedCount > 0 ? `${summary.winnerHits} / ${summary.scoredCities}` : "待開票";
+    const statsEl = document.createElement("div");
+    statsEl.className = "player-stats";
+    statsEl.textContent =
+      openedCount > 0
+        ? `命中 ${summary.winnerHits}/${summary.scoredCities} 題｜誤差 ±${summary.totalError}%`
+        : "待開票";
 
-    const errTd = document.createElement("td");
-    errTd.textContent = openedCount > 0 ? `± ${summary.totalError}%` : "—";
+    playerEl.append(nameRow, statsEl);
 
-    const scoreTd = document.createElement("td");
-    scoreTd.className = "score-highlight";
-    scoreTd.textContent = openedCount > 0 ? `${summary.totalScore} 分` : "—";
+    const barArea = document.createElement("div");
+    barArea.className = "score-bar-area";
 
-    const actionTd = document.createElement("td");
+    const rawPct =
+      openedCount > 0 && maxPossibleScore > 0
+        ? (summary.totalScore / maxPossibleScore) * 100
+        : 0;
+    const clampedPct = Math.min(100, Math.max(0, rawPct));
+    const visualPct = summary.totalScore > 0 ? Math.max(2, clampedPct) : 0;
+
+    const track = document.createElement("div");
+    track.className = "score-bar-track";
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-label", `${pred.nickname} 的得分進度`);
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", String(maxPossibleScore || 100));
+    track.setAttribute("aria-valuenow", String(summary.totalScore));
+
+    const fill = document.createElement("div");
+    fill.className = "score-bar-fill";
+    fill.style.width = `${visualPct.toFixed(1)}%`;
+    track.appendChild(fill);
+
+    const scoreVal = document.createElement("span");
+    scoreVal.className = "score-bar-value";
+    scoreVal.textContent = openedCount > 0 ? `${summary.totalScore} 分` : "—";
+
+    barArea.append(track, scoreVal);
+
+    const actionWrap = document.createElement("div");
+    actionWrap.className = "leaderboard-action";
     const detailBtn = document.createElement("button");
     detailBtn.type = "button";
     detailBtn.className = "btn btn-sm btn-secondary";
     detailBtn.textContent = "查看明細";
     detailBtn.addEventListener("click", () => openPlayerDetail(pred, summary));
-    actionTd.appendChild(detailBtn);
+    actionWrap.appendChild(detailBtn);
 
-    tr.append(rankTd, nameTh, hitsTd, errTd, scoreTd, actionTd);
-    leaderboardTbody.appendChild(tr);
+    li.append(rankEl, playerEl, barArea, actionWrap);
+    leaderboardList.appendChild(li);
   });
 }
 
@@ -1242,6 +1286,21 @@ function openPlayerDetail(pred, summary) {
           ? `實際結果：${actualName}`
           : `實際結果：${actualName}（${actualCity.winnerShare ?? 0}%）`;
       block.appendChild(actualLine);
+    }
+
+    if (cityResult) {
+      const calcLine = document.createElement("p");
+      calcLine.className = "detail-line detail-calc";
+      if (city.type === "yesno") {
+        calcLine.textContent = cityResult.winnerHit
+          ? `計分細項：預測成功 +${cityResult.totalPoints} 分`
+          : "計分細項：預測失敗，本區 0 分";
+      } else if (cityResult.winnerHit) {
+        calcLine.textContent = `計分細項：當選人 +${cityResult.winnerPoints} 分 ＋ 得票率精準度 +${cityResult.accuracyPoints} 分（誤差 ${cityResult.errorSum}%）＝ ${cityResult.totalPoints} 分`;
+      } else {
+        calcLine.textContent = "計分細項：候選人預測錯誤，本區直接 0 分";
+      }
+      block.appendChild(calcLine);
     }
 
     detailDialogBody.appendChild(block);
