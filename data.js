@@ -1,5 +1,5 @@
 // 2026 九合一縣市長選舉資料設定與計分邏輯
-// 五都市長（單選當選人 + 預測得票率）＋ 桃園市議員第1選區王妃特別題（是非題）
+// 六縣市長（台北、新北、台中、台南、高雄、新竹市：單選當選人 + 預測得票率）＋ 桃園市議員第1選區王妃特別題（是非題）
 
 export const OFFICIAL_LOCK_ISO = "2026-11-28T16:00:00+08:00";
 
@@ -102,6 +102,16 @@ export const CONSTITUENCIES = [
     ]
   },
   {
+    id: "hsinchu",
+    name: "新竹市市長",
+    type: "mayor",
+    candidates: [
+      { id: "hsz-1", name: "1號 高虹安（無黨籍）", party: "無黨籍", color: "#64748b" },
+      { id: "hsz-2", name: "2號 何志勇（無黨籍）", party: "無黨籍", color: "#64748b" },
+      { id: "hsz-3", name: "3號 莊競程（民進黨）", party: "民主進步黨", color: "#1b9431" }
+    ]
+  },
+  {
     id: "taoyuan-c1",
     name: "特別題：桃園市議員第1選區（王妃）",
     subtitle: "12號「王妃天崩開局穿越整頓霸凌者佀廣洋」會不會當選？",
@@ -115,11 +125,11 @@ export const CONSTITUENCIES = [
 
 /**
  * 計算單一選區得分：
- * - 五都市長（type: "mayor"，滿分 100 分）：
- *   1. 猜中當選人：+40 分
- *   2. 得票率精準度：max(0, 60 - |預測得票率 - 實際當選人得票率| * 2)
- * - 特別題（type: "yesno"，滿分 100 分）：
- *   預測成功（猜中會不會當選）：+100 分
+ * - 縣市長（type: "mayor"，滿分 100 分）：
+ *   1. 猜中當選人：+40 分，並加計得票率精準度 max(0, 60 - |預測得票率 - 實際當選人得票率| * 2)
+ *   2. 未猜中當選人：直接 0 分（不計得票率精準度分數）
+ * - 特別題（type: "yesno"，滿分 60 分）：
+ *   預測成功（猜中會不會當選）：+60 分
  */
 export function calculateCityScore(constituency, predictionCity, actualCity) {
   if (!predictionCity || !actualCity || !actualCity.winnerId) {
@@ -129,7 +139,7 @@ export function calculateCityScore(constituency, predictionCity, actualCity) {
   const winnerHit = predictionCity.winnerId === actualCity.winnerId;
 
   if (constituency.type === "yesno") {
-    const totalPoints = winnerHit ? 100 : 0;
+    const totalPoints = winnerHit ? 60 : 0;
     return {
       winnerHit,
       winnerPoints: totalPoints,
@@ -139,10 +149,23 @@ export function calculateCityScore(constituency, predictionCity, actualCity) {
     };
   }
 
-  const winnerPoints = winnerHit ? 40 : 0;
   const predShare = Number(predictionCity.winnerShare ?? 0);
   const actualShare = Number(actualCity.winnerShare ?? 0);
   const diff = Number(Math.abs(predShare - actualShare).toFixed(1));
+
+  if (!winnerHit) {
+    return {
+      winnerHit: false,
+      winnerPoints: 0,
+      accuracyPoints: 0,
+      errorSum: diff,
+      totalPoints: 0,
+      predShare,
+      actualShare
+    };
+  }
+
+  const winnerPoints = 40;
   const accuracyPoints = Number(Math.max(0, 60 - diff * 2).toFixed(1));
   const totalPoints = Number((winnerPoints + accuracyPoints).toFixed(1));
 

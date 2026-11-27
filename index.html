@@ -33,7 +33,7 @@
         開票結果輸入（管理員）
       </button>
       <button type="button" id="nav-leaderboard-btn" class="nav-btn" data-view="leaderboard" hidden>
-        排行榜與誤差分析
+        分數排行
       </button>
     </div>
   </nav>
@@ -59,8 +59,8 @@
       <div class="rules-card" aria-labelledby="rules-heading">
         <h2 id="rules-heading">計分規則</h2>
         <ul class="rules-list">
-          <li><strong>五都市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>；得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 2</code>，誤差越小分數越高）。</li>
-          <li><strong>桃園區議員特別題（滿分 100 分）</strong>：預測 12 號「王妃」會不會當選，預測成功即 <strong>+100 分</strong>。</li>
+          <li><strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 2</code>，誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。</li>
+          <li><strong>桃園區議員特別題（滿分 60 分）</strong>：預測 12 號「王妃」會不會當選，預測成功即 <strong>+60 分</strong>。</li>
           <li><strong>鎖單與歷史賽局規則</strong>：<strong>正式賽局</strong>將於截止時間（預設 <strong>2026/11/28 16:00</strong>）自動鎖單；<strong>測試賽局</strong>不限時。任一賽局經結算計分後即成為<strong>歷史賽局</strong>，不可再新增預測或重新結算，但可隨時檢視賽局與分數。</li>
         </ul>
       </div>
@@ -140,7 +140,7 @@
     <!-- 檢視 1：我要預測 -->
     <section id="view-predict" class="view-section" aria-labelledby="predict-heading" hidden>
       <div id="lock-notice-banner" class="lock-notice" role="status" hidden>
-        <strong>此正式賽局已鎖單！</strong> 已超過截止時間，無法再新增或修改預測。請切換至「排行榜與誤差分析」查看開票結果與排名。
+        <strong>此正式賽局已鎖單！</strong> 已超過截止時間，無法再新增或修改預測。請切換至「分數排行」查看開票結果與排名。
       </div>
 
       <div class="section-header">
@@ -212,11 +212,11 @@
       </form>
     </section>
 
-    <!-- 檢視 3：排行榜與誤差分析 -->
+    <!-- 檢視 3：分數排行 -->
     <section id="view-leaderboard" class="view-section" aria-labelledby="leaderboard-heading" hidden>
       <div class="section-header">
         <div>
-          <h2 id="leaderboard-heading">本局即時神算排行榜</h2>
+          <h2 id="leaderboard-heading">分數排行版</h2>
           <p id="leaderboard-summary" class="section-desc">載入中...</p>
         </div>
         <div class="quick-actions">
@@ -253,21 +253,12 @@
         <div id="live-results-grid" class="live-results-grid"></div>
       </section>
 
-      <div tabindex="0" role="region" aria-labelledby="leaderboard-table-caption" class="table-wrapper">
-        <table class="leaderboard-table">
-          <caption id="leaderboard-table-caption">2026 九合一預測排行榜（依總分高至低、總誤差低至高排序）</caption>
-          <thead>
-            <tr>
-              <th scope="col">名次</th>
-              <th scope="col">玩家暱稱</th>
-              <th scope="col">命中題數</th>
-              <th scope="col">得票率總誤差</th>
-              <th scope="col">總分</th>
-              <th scope="col">詳細對比</th>
-            </tr>
-          </thead>
-          <tbody id="leaderboard-tbody"></tbody>
-        </table>
+      <div class="leaderboard-panel" role="region" aria-labelledby="leaderboard-panel-title">
+        <div class="leaderboard-panel-header">
+          <span id="leaderboard-panel-title">分數排行（依總分高至低、總誤差低至高排序）</span>
+          <span id="leaderboard-max-score" class="leaderboard-max-score"></span>
+        </div>
+        <ol id="leaderboard-list" class="leaderboard-bars"></ol>
       </div>
     </section>
   </main>
@@ -275,7 +266,7 @@
   <footer class="site-footer">
     <div class="container">
       <span>2026 九合一選舉預測大賽</span>
-      <span class="version-tag">版本：v1.2.0</span>
+      <span class="version-tag">版本：v1.3.0</span>
     </div>
   </footer>
 

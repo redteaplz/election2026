@@ -546,111 +546,227 @@ input[aria-invalid="true"] {
   }
 }
 
-/* Responsive Leaderboard Table */
-.table-wrapper {
+/* Responsive Horizontal Bar Leaderboard */
+.leaderboard-panel {
   background: var(--surface);
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  overflow: auto;
-  max-inline-size: 100%;
-  max-block-size: min(620px, 75vh);
-  container-type: inline-size;
+  overflow: hidden;
 }
 
-.leaderboard-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  text-align: left;
-  --label-1: "名次";
-  --label-2: "玩家暱稱";
-  --label-3: "命中題數";
-  --label-4: "得票率總誤差";
-  --label-5: "總分";
-  --label-6: "詳細對比";
-}
-
-.leaderboard-table caption {
-  padding: 0.85rem 1rem;
+.leaderboard-panel-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1.05rem;
   font-weight: 700;
-  text-align: left;
   color: var(--brothers-navy);
   background: var(--brothers-yellow-soft);
-  border-block-end: 1px solid var(--border);
+  border-block-end: 1.5px solid var(--border);
 }
 
-.leaderboard-table thead {
-  position: sticky;
-  inset-block-start: 0;
-  z-index: 1;
-  background: var(--surface-muted);
+.leaderboard-max-score {
+  font-size: 0.85rem;
+  font-weight: 800;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
   color: var(--brothers-navy);
-}
-
-.leaderboard-table thead th {
-  border-block-end: 2px solid var(--border);
-}
-
-.leaderboard-table th,
-.leaderboard-table td {
-  padding: 0.8rem 0.9rem;
-  border-block-end: 1px solid #ece7d5;
   font-variant-numeric: tabular-nums;
 }
 
-.leaderboard-table tbody th {
-  position: sticky;
-  inset-inline-start: 0;
-  background: var(--surface);
+.leaderboard-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.leaderboard-empty {
+  padding: 1.5rem 1.1rem;
+  text-align: center;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.leaderboard-row {
+  display: grid;
+  grid-template-columns: 3.1rem minmax(135px, 190px) 1fr auto;
+  grid-template-areas: "rank player bar action";
+  align-items: center;
+  gap: 0.65rem 0.9rem;
+  padding: 0.85rem 1.05rem;
+  border-block-end: 1px solid #ece7d5;
+  transition: background-color 0.15s ease;
+}
+
+.leaderboard-row:last-child {
+  border-block-end: none;
+}
+
+.rank-badge {
+  grid-area: rank;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.65rem;
+  height: 2.1rem;
+  border-radius: 10px;
+  font-weight: 900;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  background: var(--surface-muted);
+  color: var(--brothers-navy);
+  border: 1px solid var(--border);
+}
+
+.leaderboard-row.rank-1 .rank-badge {
+  background: linear-gradient(135deg, #ffe26a 0%, #f4c430 100%);
+  color: #4a3200;
+  border-color: #d9a700;
+}
+
+.leaderboard-row.rank-2 .rank-badge {
+  background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 100%);
+  color: #1e293b;
+  border-color: #94a3b8;
+}
+
+.leaderboard-row.rank-3 .rank-badge {
+  background: linear-gradient(135deg, #fed7aa 0%, #f59e0b 100%);
+  color: #451a03;
+  border-color: #d97706;
+}
+
+.player-meta {
+  grid-area: player;
+  min-width: 0;
+}
+
+.player-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem;
   font-weight: 800;
   color: var(--brothers-navy);
+  word-break: break-word;
 }
 
-.score-highlight {
+.player-stats {
+  margin-block-start: 0.12rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.score-bar-area {
+  grid-area: bar;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.score-bar-track {
+  flex: 1 1 auto;
+  height: 18px;
+  background: #efeae0;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.score-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brothers-navy) 0%, #3b6ea5 100%);
+  transition: width 0.35s ease;
+}
+
+.leaderboard-row.rank-1 .score-bar-fill {
+  background: linear-gradient(90deg, #d97706 0%, #f59e0b 55%, #facc15 100%);
+}
+
+.leaderboard-row.rank-2 .score-bar-fill {
+  background: linear-gradient(90deg, #334155 0%, #64748b 100%);
+}
+
+.leaderboard-row.rank-3 .score-bar-fill {
+  background: linear-gradient(90deg, #b45309 0%, #ea580c 100%);
+}
+
+.score-bar-value {
+  flex: 0 0 auto;
+  min-width: 4.8rem;
+  text-align: right;
   font-weight: 900;
+  font-size: 1.02rem;
   color: var(--brothers-navy);
-  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
 }
 
-@container (width < 600px) {
-  .leaderboard-table,
-  .leaderboard-table thead,
-  .leaderboard-table tbody,
-  .leaderboard-table tr,
-  .leaderboard-table th,
-  .leaderboard-table td {
-    display: block;
+.leaderboard-action {
+  grid-area: action;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.leaderboard-action .btn {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .leaderboard-panel-header {
+    padding: 0.75rem 0.9rem;
+    font-size: 0.92rem;
   }
 
-  .leaderboard-table thead {
-    display: none;
+  .leaderboard-row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      "rank player action"
+      "bar bar bar";
+    gap: 0.55rem 0.65rem;
+    padding: 0.85rem 0.9rem;
   }
 
-  .leaderboard-table tr {
-    margin: 0.75rem;
-    border: 1.5px solid var(--border);
-    border-radius: 12px;
-    overflow: hidden;
+  .rank-badge {
+    width: 2.35rem;
+    height: 2rem;
+    font-size: 0.86rem;
   }
 
-  .leaderboard-table tbody th {
-    position: sticky;
-    inset-block-start: 0;
-    z-index: 2;
-    background: var(--brothers-yellow-soft);
+  .player-name {
+    font-size: 0.98rem;
   }
 
-  .leaderboard-table td::before {
-    font-weight: 700;
-    color: var(--text-muted);
+  .player-stats {
+    font-size: 0.78rem;
   }
 
-  .leaderboard-table td:nth-child(1)::before { content: var(--label-1) "："; }
-  .leaderboard-table td:nth-child(3)::before { content: var(--label-3) "："; }
-  .leaderboard-table td:nth-child(4)::before { content: var(--label-4) "："; }
-  .leaderboard-table td:nth-child(5)::before { content: var(--label-5) "："; }
-  .leaderboard-table td:nth-child(6)::before { content: var(--label-6) "："; }
+  .score-bar-area {
+    gap: 0.6rem;
+  }
+
+  .score-bar-track {
+    height: 16px;
+  }
+
+  .score-bar-value {
+    min-width: 4.2rem;
+    font-size: 0.98rem;
+  }
+
+  .leaderboard-action .btn {
+    padding: 0.4rem 0.65rem;
+    font-size: 0.84rem;
+    min-height: 36px;
+  }
 }
 
 /* Native Dialog */
@@ -1163,19 +1279,19 @@ dialog::backdrop {
   color: var(--text-muted);
 }
 
+.detail-calc {
+  margin-block-start: 0.35rem;
+  padding-block-start: 0.35rem;
+  border-block-start: 1px dashed var(--border);
+  font-weight: 700;
+  color: var(--brothers-navy);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Highlight Current Player on Leaderboard */
-.leaderboard-table tr.is-self {
+.leaderboard-row.is-self {
   background: var(--brothers-yellow-soft);
-}
-
-.leaderboard-table tr.is-self td,
-.leaderboard-table tr.is-self th {
-  background: var(--brothers-yellow-soft);
-}
-
-.leaderboard-table tr.is-self td:first-child,
-.leaderboard-table tr.is-self th {
-  border-inline-start: 4px solid var(--brothers-navy);
+  box-shadow: inset 4px 0 0 var(--brothers-navy);
 }
 
 .self-badge {
