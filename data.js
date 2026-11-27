@@ -162,14 +162,147 @@ export const CONSTITUENCIES = [
   {
     id: "taoyuan-c1",
     name: "特別題：桃園市議員第1選區（王妃）",
-    subtitle: "12號「王妃天崩開局穿越整頓霸凌者佀廣洋」會不會當選？",
+    subtitle: "12號「王妃天崩開局穿越整頓霸凌者佀廣洋」會不會當選？（前 12 高得票率當選）",
     type: "yesno",
+    seats: 12,
+    targetCandidateId: "tyc1-12",
     candidates: [
       { id: "yes", name: "會當選", party: "預測當選", color: "#1a7f37" },
       { id: "no", name: "不會當選", party: "預測落選", color: "#cf222e" }
+    ],
+    districtCandidates: [
+      { id: "tyc1-1", no: 1, name: "1號 徐千晴（民眾黨）", party: "台灣民眾黨", color: "#28c8c8" },
+      { id: "tyc1-2", no: 2, name: "2號 余信憲（民進黨）", party: "民主進步黨", color: "#1b9431" },
+      { id: "tyc1-3", no: 3, name: "3號 張碩芳（國民黨）", party: "中國國民黨", color: "#000095" },
+      { id: "tyc1-4", no: 4, name: "4號 凌濤（國民黨）", party: "中國國民黨", color: "#000095" },
+      { id: "tyc1-5", no: 5, name: "5號 陳美梅（國民黨）", party: "中國國民黨", color: "#000095" },
+      { id: "tyc1-6", no: 6, name: "6號 林政賢（國民黨）", party: "中國國民黨", color: "#000095" },
+      { id: "tyc1-7", no: 7, name: "7號 黃瓊慧（民進黨）", party: "民主進步黨", color: "#1b9431" },
+      { id: "tyc1-8", no: 8, name: "8號 沈佩玲（小民參政歐巴桑聯盟）", party: "小民參政歐巴桑聯盟", color: "#e67e22" },
+      { id: "tyc1-9", no: 9, name: "9號 于北辰（無黨籍）", party: "無黨籍", color: "#64748b" },
+      { id: "tyc1-10", no: 10, name: "10號 黃家齊（民進黨）", party: "民主進步黨", color: "#1b9431" },
+      { id: "tyc1-11", no: 11, name: "11號 詹江村（國民黨）", party: "中國國民黨", color: "#000095" },
+      { id: "tyc1-12", no: 12, name: "12號 王妃天崩開局穿越整頓霸凌者佀廣洋（無黨籍）", party: "無黨籍", color: "#d97706" },
+      { id: "tyc1-13", no: 13, name: "13號 李凱倫（無黨籍）", party: "無黨籍", color: "#64748b" },
+      { id: "tyc1-14", no: 14, name: "14號 佀廣洋（無黨籍）", party: "無黨籍", color: "#64748b" },
+      { id: "tyc1-15", no: 15, name: "15號 李光達（民進黨）", party: "民主進步黨", color: "#1b9431" },
+      { id: "tyc1-16", no: 16, name: "16號 李柏瑟（民進黨）", party: "民主進步黨", color: "#1b9431" },
+      { id: "tyc1-17", no: 17, name: "17號 黃婉如（國民黨）", party: "中國國民黨", color: "#000095" },
+      { id: "tyc1-18", no: 18, name: "18號 朱永煇（無黨籍）", party: "無黨籍", color: "#64748b" },
+      { id: "tyc1-19", no: 19, name: "19號 許孟祥（勞動黨）", party: "勞動黨", color: "#64748b" }
     ]
   }
 ];
+
+function getPartyColorFallback(party) {
+  if (!party) return "#64748b";
+  if (party.includes("民進黨") || party.includes("民主進步黨")) return "#1b9431";
+  if (party.includes("國民黨")) return "#000095";
+  if (party.includes("民眾黨")) return "#28c8c8";
+  return "#64748b";
+}
+
+/**
+ * 統一解析單一選區開票結果（同時相容新版完整候選人陣列與舊版/手動簡化格式）：
+ * - 新版格式（actualCity.candidates 陣列含每位候選人 votes 與 share）：
+ *   - 依 share 由高到低排序（同率再比 votes 高到低、no 小到大）
+ *   - 縣市長 (type === "mayor")：最高得票率候選人為 winnerId / winnerShare
+ *   - 桃園議員特別題 (type === "yesno")：若目標候選人 (12號王妃) 排名前 seats (12) 名，則 winnerId = "yes"，否則 "no"
+ * - 舊版/手動格式（僅含 winnerId / winnerShare）：直接回傳既有值
+ */
+export function resolveCityOutcome(constituency, actualCity) {
+  if (!constituency || !actualCity) {
+    return { hasResult: false, sortedCandidates: [] };
+  }
+
+  const rawList = Array.isArray(actualCity.candidates) ? actualCity.candidates : [];
+  if (rawList.length > 0) {
+    const refPool =
+      constituency.type === "yesno"
+        ? constituency.districtCandidates || []
+        : constituency.candidates || [];
+
+    const normalized = rawList.map((item, idx) => {
+      const ref =
+        refPool.find((c) => c.id === item.id) ||
+        (item.no != null ? refPool.find((c) => c.no === Number(item.no)) : null);
+      const votes = Number(item.votes ?? 0);
+      const share = Number(Number(item.share ?? 0).toFixed(2));
+      const party = item.party || ref?.party || "";
+      return {
+        id: item.id || ref?.id || `cand-${idx + 1}`,
+        no: item.no ?? ref?.no ?? idx + 1,
+        name: item.name || ref?.name || item.id || `候選人 ${idx + 1}`,
+        party,
+        color: ref?.color || getPartyColorFallback(party),
+        votes: Number.isNaN(votes) ? 0 : votes,
+        share: Number.isNaN(share) ? 0 : share
+      };
+    });
+
+    const sortedCandidates = normalized.sort((a, b) => {
+      if (b.share !== a.share) return b.share - a.share;
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      return (a.no ?? 0) - (b.no ?? 0);
+    });
+
+    const computedTotalVotes = sortedCandidates.reduce((sum, c) => sum + c.votes, 0);
+    const totalVotes = Number(actualCity.totalVotes ?? computedTotalVotes);
+
+    if (constituency.type === "yesno") {
+      const seats = Number(actualCity.seats ?? constituency.seats ?? 12);
+      const targetId = actualCity.targetCandidateId || constituency.targetCandidateId || "tyc1-12";
+      const targetIdx = sortedCandidates.findIndex((c) => c.id === targetId || c.no === 12);
+      const targetRank = targetIdx >= 0 ? targetIdx + 1 : null;
+      const targetCand = targetIdx >= 0 ? sortedCandidates[targetIdx] : null;
+      const isElected = targetRank !== null && targetRank <= seats;
+
+      return {
+        hasResult: true,
+        winnerId: isElected ? "yes" : "no",
+        winnerShare: null,
+        winnerVotes: null,
+        totalVotes,
+        seats,
+        targetCandidateId: targetId,
+        targetRank,
+        targetVotes: targetCand ? targetCand.votes : null,
+        targetShare: targetCand ? targetCand.share : null,
+        sortedCandidates
+      };
+    }
+
+    const leader = sortedCandidates[0];
+    return {
+      hasResult: Boolean(leader),
+      winnerId: leader?.id || null,
+      winnerShare: leader ? Number(leader.share.toFixed(1)) : 0,
+      winnerVotes: leader?.votes ?? 0,
+      winnerName: leader?.name || null,
+      winnerColor: leader?.color || "#64748b",
+      totalVotes,
+      sortedCandidates
+    };
+  }
+
+  if (actualCity.winnerId) {
+    return {
+      hasResult: true,
+      winnerId: actualCity.winnerId,
+      winnerShare: typeof actualCity.winnerShare === "number" ? actualCity.winnerShare : Number(actualCity.winnerShare ?? 0),
+      winnerVotes: typeof actualCity.winnerVotes === "number" ? actualCity.winnerVotes : null,
+      totalVotes: typeof actualCity.totalVotes === "number" ? actualCity.totalVotes : null,
+      seats: constituency.seats ?? null,
+      targetCandidateId: constituency.targetCandidateId ?? null,
+      targetRank: actualCity.targetRank ?? null,
+      targetVotes: actualCity.targetVotes ?? null,
+      targetShare: actualCity.targetShare ?? null,
+      sortedCandidates: []
+    };
+  }
+
+  return { hasResult: false, sortedCandidates: [] };
+}
 
 /**
  * 計算單一選區得分：
@@ -180,11 +313,16 @@ export const CONSTITUENCIES = [
  *   預測成功（猜中會不會當選）：+60 分
  */
 export function calculateCityScore(constituency, predictionCity, actualCity) {
-  if (!predictionCity || !actualCity || !actualCity.winnerId) {
+  if (!predictionCity || !actualCity) {
     return null;
   }
 
-  const winnerHit = predictionCity.winnerId === actualCity.winnerId;
+  const outcome = resolveCityOutcome(constituency, actualCity);
+  if (!outcome.hasResult || !outcome.winnerId) {
+    return null;
+  }
+
+  const winnerHit = predictionCity.winnerId === outcome.winnerId;
 
   if (constituency.type === "yesno") {
     const totalPoints = winnerHit ? 60 : 0;
@@ -198,7 +336,7 @@ export function calculateCityScore(constituency, predictionCity, actualCity) {
   }
 
   const predShare = Number(predictionCity.winnerShare ?? 0);
-  const actualShare = Number(actualCity.winnerShare ?? 0);
+  const actualShare = Number(outcome.winnerShare ?? 0);
   const diff = Number(Math.abs(predShare - actualShare).toFixed(1));
 
   if (!winnerHit) {

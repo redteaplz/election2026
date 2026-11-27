@@ -7,6 +7,7 @@ import {
   getResultSourceLabel,
   isGameLocked,
   isGameSettled,
+  resolveCityOutcome,
   shouldConnectFirebaseResults,
   formatLockTime
 } from "./data.js";
@@ -61,6 +62,7 @@ let unsubscribeOfficialResults = null;
 let unsubscribeSimulatedResults = null;
 let currentAdminUser = null;
 let isAuthorizedAdmin = false;
+const expandedResultCities = new Set();
 
 const urlParams = new URLSearchParams(window.location.search);
 const isAdminRoute = urlParams.get("admin") === "1";
@@ -1063,15 +1065,22 @@ function fillRandomResults() {
   }
 }
 
+function formatVotes(votes) {
+  const num = Number(votes);
+  if (Number.isNaN(num)) return "0";
+  return num.toLocaleString("zh-TW");
+}
+
 function syncResultsFormFromData(citiesMap) {
   for (const city of CONSTITUENCIES) {
     const saved = citiesMap?.[city.id];
+    const outcome = resolveCityOutcome(city, saved);
     const radios = document.querySelectorAll(`input[name="res-winner-${city.id}"]`);
     radios.forEach((r) => {
-      r.checked = saved ? r.value === saved.winnerId : false;
+      r.checked = outcome.hasResult ? r.value === outcome.winnerId : false;
     });
     if (city.type === "mayor") {
-      setCityShare("res", city.id, saved?.winnerShare ?? 50);
+      setCityShare("res", city.id, outcome.hasResult ? (outcome.winnerShare ?? 50) : 50);
     }
   }
 }
@@ -1134,10 +1143,14 @@ function renderLiveResultsPanel(game, activeResults) {
 
   for (const city of CONSTITUENCIES) {
     const cityRes = citiesMap[city.id];
-    const hasResult = Boolean(cityRes && cityRes.winnerId);
+    const outcome = resolveCityOutcome(city, cityRes);
+    const hasResult = outcome.hasResult;
 
     const card = document.createElement("div");
     card.className = hasResult ? "live-result-card is-opened" : "live-result-card";
+    if (city.type === "yesno") {
+      card.classList.add("is-special");
+    }
 
     const cityTitle = document.createElement("div");
     cityTitle.className = "live-result-city";
@@ -1145,25 +1158,138 @@ function renderLiveResultsPanel(game, activeResults) {
     card.appendChild(cityTitle);
 
     if (hasResult) {
-      const cand = city.candidates.find((c) => c.id === cityRes.winnerId);
+      const cand = city.candidates.find((c) => c.id === outcome.winnerId);
       const winnerRow = document.createElement("div");
       winnerRow.className = "live-result-winner";
 
       const dot = document.createElement("span");
       dot.className = "party-dot";
-      dot.style.backgroundColor = cand?.color || "#64748b";
+      dot.style.backgroundColor = cand?.color || outcome.winnerColor || "#64748b";
 
       const nameSpan = document.createElement("span");
-      nameSpan.textContent = cand?.name ?? cityRes.winnerId;
+      if (city.type === "yesno") {
+        nameSpan.textContent = outcome.winnerId === "yes" ? "會當選" : "不會當選";
+      } else {
+        nameSpan.textContent = cand?.name ?? outcome.winnerName ?? outcome.winnerId;
+      }
 
       winnerRow.append(dot, nameSpan);
       card.appendChild(winnerRow);
 
-      if (city.type === "mayor" && typeof cityRes.winnerShare === "number") {
+      if (city.type === "mayor" && typeof outcome.winnerShare === "number") {
         const shareEl = document.createElement("div");
         shareEl.className = "live-result-share";
-        shareEl.textContent = `得票率：${cityRes.winnerShare}%`;
+        const votesPart =
+          typeof outcome.winnerVotes === "number" && outcome.winnerVotes > 0
+            ? `（${formatVotes(outcome.winnerVotes)} 票）`
+            : "";
+        shareEl.textContent = `最高得票率：${outcome.winnerShare}%${votesPart}`;
         card.appendChild(shareEl);
+      } else if (city.type === "yesno" && outcome.targetRank !== null) {
+        const rankEl = document.createElement("div");
+        rankEl.className = "live-result-share";
+        const seats = outcome.seats || 12;
+        const shareText = typeof outcome.targetShare === "number" ? `${outcome.targetShare}%` : "";
+        const votesText = typeof outcome.targetVotes === "number" ? `${formatVotes(outcome.targetVotes)} 票` : "";
+        const detailMeta = [shareText, votesText].filter(Boolean).join("・");
+        rankEl.textContent = `王妃目前第 ${outcome.targetRank} 名（前 ${seats} 名當選）${detailMeta ? `｜${detailMeta}` : ""}`;
+        card.appendChild(rankEl);
+      }
+
+      if (outcome.sortedCandidates.length > 0) {
+        const details = document.createElement("details");
+        details.className = "live-result-details";
+        details.open = expandedResultCities.has(city.id);
+        details.addEventListener("toggle", () => {
+          if (details.open) {
+            expandedResultCities.add(city.id);
+          } else {
+            expandedResultCities.delete(city.id);
+          }
+        });
+
+        const summary = document.createElement("summary");
+        summary.className = "live-result-summary";
+        summary.textContent =
+          city.type === "yesno"
+            ? `查看全選區 ${outcome.sortedCandidates.length} 位候選人排名`
+            : `查看全部 ${outcome.sortedCandidates.length} 位候選人開票`;
+        details.appendChild(summary);
+
+        const list = document.createElement("ol");
+        list.className = "live-cand-list";
+
+        const maxShare = Math.max(
+          ...outcome.sortedCandidates.map((c) => Number(c.share || 0)),
+          1
+        );
+        const seats = outcome.seats || 12;
+
+        outcome.sortedCandidates.forEach((c, idx) => {
+          const rank = idx + 1;
+          const isTarget =
+            city.type === "yesno" &&
+            (c.id === outcome.targetCandidateId || c.no === 12);
+
+          const item = document.createElement("li");
+          item.className = "live-cand-item";
+          if (city.type === "mayor" && rank === 1) item.classList.add("is-leader");
+          if (city.type === "yesno" && rank <= seats) item.classList.add("is-in-seats");
+          if (isTarget) item.classList.add("is-target");
+
+          const topRow = document.createElement("div");
+          topRow.className = "live-cand-top";
+
+          const left = document.createElement("div");
+          left.className = "live-cand-name";
+
+          const rankTag = document.createElement("span");
+          rankTag.className = "live-cand-rank";
+          rankTag.textContent = `#${rank}`;
+
+          const cDot = document.createElement("span");
+          cDot.className = "party-dot";
+          cDot.style.backgroundColor = c.color || "#64748b";
+
+          const cName = document.createElement("span");
+          cName.textContent = c.name;
+
+          left.append(rankTag, cDot, cName);
+
+          if (isTarget) {
+            const targetPill = document.createElement("span");
+            targetPill.className = "target-pill";
+            targetPill.textContent = rank <= seats ? "當選區內" : "未進前12";
+            left.appendChild(targetPill);
+          }
+
+          const right = document.createElement("div");
+          right.className = "live-cand-nums";
+          right.textContent = `${c.share}%（${formatVotes(c.votes)} 票）`;
+
+          topRow.append(left, right);
+
+          const barTrack = document.createElement("div");
+          barTrack.className = "live-cand-bar-track";
+          const barFill = document.createElement("div");
+          barFill.className = "live-cand-bar-fill";
+          barFill.style.width = `${Math.min(100, Math.max(c.share > 0 ? 2 : 0, (c.share / maxShare) * 100)).toFixed(1)}%`;
+          barFill.style.backgroundColor = c.color || "#243b5a";
+          barTrack.appendChild(barFill);
+
+          item.append(topRow, barTrack);
+          list.appendChild(item);
+
+          if (city.type === "yesno" && rank === seats && outcome.sortedCandidates.length > seats) {
+            const cutoff = document.createElement("li");
+            cutoff.className = "live-cand-cutoff";
+            cutoff.textContent = `── 當選門檻線（前 ${seats} 名當選）──`;
+            list.appendChild(cutoff);
+          }
+        });
+
+        details.appendChild(list);
+        card.appendChild(details);
       }
     } else {
       const pending = document.createElement("div");
@@ -1179,7 +1305,7 @@ function renderLiveResultsPanel(game, activeResults) {
 function renderLeaderboard() {
   const game = getActiveGame();
   const activeResults = getActiveGameResults();
-  const openedCities = CONSTITUENCIES.filter((c) => Boolean(activeResults?.cities?.[c.id]?.winnerId));
+  const openedCities = CONSTITUENCIES.filter((c) => resolveCityOutcome(c, activeResults?.cities?.[c.id]).hasResult);
   const openedCount = openedCities.length;
   const maxPossibleScore = openedCities.reduce(
     (sum, city) => sum + (city.type === "yesno" ? 60 : 100),
@@ -1386,14 +1512,20 @@ function openPlayerDetail(pred, summary) {
         : `玩家預測：${predName}（${predCity?.winnerShare ?? 0}%）`;
     block.appendChild(predLine);
 
-    if (actualCity && actualCity.winnerId) {
+    const actualOutcome = resolveCityOutcome(city, actualCity);
+    if (actualOutcome.hasResult && actualOutcome.winnerId) {
       const actualLine = document.createElement("p");
       actualLine.className = "detail-line";
-      const actualName = getCandidateName(city, actualCity.winnerId);
-      actualLine.textContent =
-        city.type === "yesno"
-          ? `實際結果：${actualName}`
-          : `實際結果：${actualName}（${actualCity.winnerShare ?? 0}%）`;
+      const actualName = getCandidateName(city, actualOutcome.winnerId);
+      if (city.type === "yesno") {
+        const rankSuffix =
+          actualOutcome.targetRank !== null
+            ? `（王妃第 ${actualOutcome.targetRank} 名／前 ${actualOutcome.seats || 12} 名當選）`
+            : "";
+        actualLine.textContent = `實際結果：${actualName}${rankSuffix}`;
+      } else {
+        actualLine.textContent = `實際結果：${actualName}（${actualOutcome.winnerShare ?? 0}%）`;
+      }
       block.appendChild(actualLine);
     }
 

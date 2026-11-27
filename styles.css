@@ -1235,6 +1235,7 @@ dialog::backdrop {
 .live-results-grid {
   display: grid;
   grid-template-columns: 1fr;
+  align-items: start;
   gap: 0.65rem;
 }
 
@@ -1265,6 +1266,10 @@ dialog::backdrop {
   border-color: var(--brothers-yellow);
 }
 
+.live-result-card.is-special {
+  grid-column: 1 / -1;
+}
+
 .live-result-city {
   font-size: 0.85rem;
   font-weight: 800;
@@ -1281,7 +1286,7 @@ dialog::backdrop {
 }
 
 .live-result-share {
-  font-size: 0.85rem;
+  font-size: 0.84rem;
   font-weight: 800;
   color: var(--brothers-navy);
   font-variant-numeric: tabular-nums;
@@ -1290,6 +1295,140 @@ dialog::backdrop {
 .live-result-pending {
   font-size: 0.86rem;
   color: var(--text-muted);
+}
+
+/* Collapsible Per-Constituency Candidate Results */
+.live-result-details {
+  margin-block-start: 0.35rem;
+  padding-block-start: 0.45rem;
+  border-block-start: 1px dashed var(--border);
+}
+
+.live-result-summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--brothers-navy);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.25rem 0;
+}
+
+.live-result-summary::-webkit-details-marker {
+  display: none;
+}
+
+.live-result-summary::after {
+  content: "▾";
+  font-size: 0.9rem;
+  transition: transform 0.18s ease;
+}
+
+.live-result-details[open] .live-result-summary::after {
+  transform: rotate(180deg);
+}
+
+.live-cand-list {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.live-cand-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.live-cand-item.is-leader {
+  border-color: var(--accent-gold);
+}
+
+.live-cand-item.is-target {
+  background: #fff4cc;
+  border: 1.5px solid #d97706;
+}
+
+.live-cand-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.live-cand-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  min-width: 0;
+}
+
+.live-cand-rank {
+  font-size: 0.76rem;
+  font-weight: 900;
+  color: var(--brothers-navy);
+  min-width: 1.55rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-cand-nums {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--brothers-navy);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.live-cand-bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: #efeae0;
+  overflow: hidden;
+}
+
+.live-cand-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.target-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  background: #d97706;
+  color: #ffffff;
+}
+
+.live-cand-cutoff {
+  text-align: center;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--danger);
+  padding: 0.25rem 0.4rem;
+  border-radius: 6px;
+  background: #fff1f2;
+  border: 1px dashed #fda4af;
 }
 
 .detail-calc {
