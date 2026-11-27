@@ -59,9 +59,9 @@
       <div class="rules-card" aria-labelledby="rules-heading">
         <h2 id="rules-heading">計分規則</h2>
         <ul class="rules-list">
-          <li><strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 2</code>，誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。</li>
+          <li><strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 4</code>，誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。</li>
           <li><strong>桃園區議員特別題（滿分 60 分）</strong>：預測 12 號「王妃」會不會當選，預測成功即 <strong>+60 分</strong>。</li>
-          <li><strong>鎖單與歷史賽局規則</strong>：<strong>正式賽局</strong>將於截止時間（預設 <strong>2026/11/28 16:00</strong>）自動鎖單；<strong>測試賽局</strong>不限時。任一賽局經結算計分後即成為<strong>歷史賽局</strong>，不可再新增預測或重新結算，但可隨時檢視賽局與分數。</li>
+          <li><strong>鎖單與歷史賽局規則</strong>：<strong>正式賽局</strong>將於截止時間（預設 <strong>2026/11/28 16:00</strong>）自動鎖單，並於鎖單後開始連接 Firebase 開票資料；<strong>測試賽局</strong>不限時。任一賽局經結算計分後即成為<strong>歷史賽局</strong>，不可再新增預測或重新結算，但可隨時檢視賽局與分數。</li>
         </ul>
       </div>
 
@@ -86,15 +86,27 @@
               <legend>賽局類型</legend>
               <label class="radio-pill">
                 <input type="radio" name="new-game-type" value="official" checked>
-                <span>正式賽局（讀取官方結果・自動鎖單）</span>
+                <span>正式賽局（自動鎖單・鎖單時間到後才連接 Firebase 資料）</span>
               </label>
               <label class="radio-pill">
                 <input type="radio" name="new-game-type" value="test">
-                <span>測試賽局（手動/單次模擬結果・不鎖單）</span>
+                <span>測試賽局（不鎖單）</span>
+              </label>
+            </fieldset>
+
+            <fieldset class="inline-fieldset">
+              <legend>後端開票資料來源（三種模式皆保留手動開票）</legend>
+              <label class="radio-pill">
+                <input type="radio" name="new-game-source" value="official_db" checked>
+                <span>A. Firebase 中選會正式開票資料（official_results/2026）</span>
               </label>
               <label class="radio-pill">
-                <input type="radio" name="new-game-type" value="test-livesim">
-                <span>測試賽局：GAS 即時開票模擬（讀取 2026_sim 測試數據）</span>
+                <input type="radio" name="new-game-source" value="sim_db">
+                <span>B. Firebase 模擬開票資料（official_results/2026_sim）</span>
+              </label>
+              <label class="radio-pill">
+                <input type="radio" name="new-game-source" value="manual">
+                <span>C. 純手動開票（僅由管理員手動輸入）</span>
               </label>
             </fieldset>
 
@@ -106,7 +118,7 @@
                 name="lockAt"
                 value="2026-11-28T16:00"
               >
-              <span class="hint">預設為投票日 2026/11/28 16:00。</span>
+              <span class="hint">預設為投票日 2026/11/28 16:00。正式賽局將於此時間鎖單並開始連接 Firebase 開票資料。</span>
             </div>
           </div>
 
@@ -205,9 +217,14 @@
 
         <div class="form-footer">
           <div id="results-status" class="status-banner" role="status" aria-live="polite"></div>
-          <button type="submit" id="submit-results-btn" class="btn btn-primary btn-lg">
-            儲存開票結果並結算分數
-          </button>
+          <div class="form-footer-actions">
+            <button type="button" id="save-draft-results-btn" class="btn btn-secondary">
+              暫存手動開票（不結算）
+            </button>
+            <button type="submit" id="submit-results-btn" class="btn btn-primary btn-lg">
+              儲存開票結果並結算分數
+            </button>
+          </div>
         </div>
       </form>
     </section>
@@ -266,7 +283,7 @@
   <footer class="site-footer">
     <div class="container">
       <span>2026 九合一選舉預測大賽</span>
-      <span class="version-tag">版本：v1.3.0</span>
+      <span class="version-tag">版本：v1.4.0</span>
     </div>
   </footer>
 

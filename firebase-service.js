@@ -102,9 +102,17 @@ export function subscribeGames(callback, onError) {
 /**
  * 建立新賽局（管理員）
  */
-export async function createGame({ title, type, lockAt, useLiveSim = false }) {
+export async function createGame({ title, type, lockAt, resultSource, useLiveSim = false }) {
   const id = `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   const isOfficial = type === "official";
+  const resolvedSource =
+    resultSource === "official_db" || resultSource === "sim_db" || resultSource === "manual"
+      ? resultSource
+      : isOfficial
+        ? "official_db"
+        : useLiveSim
+          ? "sim_db"
+          : "manual";
   const resolvedLockAt = isOfficial ? (lockAt || OFFICIAL_LOCK_ISO) : null;
   const parsedLockAtMs = resolvedLockAt ? Date.parse(resolvedLockAt) : null;
   const lockAtMs = isOfficial
@@ -114,7 +122,8 @@ export async function createGame({ title, type, lockAt, useLiveSim = false }) {
     id,
     title: title.trim(),
     type: isOfficial ? "official" : "test",
-    useLiveSim: !isOfficial && Boolean(useLiveSim),
+    resultSource: resolvedSource,
+    useLiveSim: resolvedSource === "sim_db",
     lockAt: resolvedLockAt,
     lockAtMs,
     settled: false,
@@ -224,16 +233,16 @@ export function subscribeGamePredictions(gameId, callback) {
 }
 
 /**
- * 儲存「測試賽局」專屬開票結果並結算為歷史賽局
+ * 儲存單一賽局的手動開票結果（支援僅更新暫存或結算為歷史賽局）
  */
 export async function saveTestGameResults(gameId, cities, { settle = true } = {}) {
   const now = new Date().toISOString();
   const testResults = {
     cities,
-    updatedAt: now
+    updatedAt: Object.keys(cities || {}).length > 0 ? now : null
   };
   const updates = settle
-    ? { testResults, settled: true, settledAt: now }
+    ? { testResults, settledResults: testResults, settled: true, settledAt: now }
     : { testResults };
 
   if (mode === "firebase" && db && firestoreApi) {
@@ -359,6 +368,7 @@ function ensureDefaultLocalGame() {
         id: "demo-official",
         title: "2026 九合一正式賽局（範例）",
         type: "official",
+        resultSource: "official_db",
         lockAt: OFFICIAL_LOCK_ISO,
         lockAtMs: Date.parse(OFFICIAL_LOCK_ISO),
         settled: false,
@@ -370,6 +380,7 @@ function ensureDefaultLocalGame() {
         id: "demo-test",
         title: "選前熱身測試賽局",
         type: "test",
+        resultSource: "manual",
         lockAt: null,
         lockAtMs: null,
         settled: false,

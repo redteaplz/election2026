@@ -15,11 +15,59 @@ export function isGameLocked(game, nowMs = Date.now()) {
   return nowMs >= lockMs;
 }
 
+export const RESULT_SOURCES = {
+  OFFICIAL_DB: "official_db",
+  SIM_DB: "sim_db",
+  MANUAL: "manual"
+};
+
+/**
+ * 取得賽局的開票資料來源（相容舊版無 resultSource 欄位的賽局）：
+ * - "official_db": Firebase 中選會正式開票資料 (official_results/2026)
+ * - "sim_db": Firebase 模擬開票資料 (official_results/2026_sim)
+ * - "manual": 純手動開票
+ */
+export function getGameResultSource(game) {
+  if (!game) return RESULT_SOURCES.MANUAL;
+  if (
+    game.resultSource === RESULT_SOURCES.OFFICIAL_DB ||
+    game.resultSource === RESULT_SOURCES.SIM_DB ||
+    game.resultSource === RESULT_SOURCES.MANUAL
+  ) {
+    return game.resultSource;
+  }
+  if (game.type === "official") return RESULT_SOURCES.OFFICIAL_DB;
+  if (game.useLiveSim) return RESULT_SOURCES.SIM_DB;
+  return RESULT_SOURCES.MANUAL;
+}
+
+export function getResultSourceLabel(source) {
+  if (source === RESULT_SOURCES.OFFICIAL_DB) return "Firebase 中選會正式開票";
+  if (source === RESULT_SOURCES.SIM_DB) return "Firebase 模擬開票";
+  return "純手動開票";
+}
+
+/**
+ * 判斷賽局目前是否應連接 Firebase 開票資料庫：
+ * - 已結算或純手動開票：不連線
+ * - 正式賽局：需到達鎖單時間（isGameLocked === true）才開始連接 Firebase 開票資料
+ * - 測試賽局：選用 Firebase 來源即立即連線
+ */
+export function shouldConnectFirebaseResults(game, nowMs = Date.now()) {
+  if (!game || isGameSettled(game)) return false;
+  const source = getGameResultSource(game);
+  if (source === RESULT_SOURCES.MANUAL) return false;
+  if (game.type === "official") {
+    return isGameLocked(game, nowMs);
+  }
+  return true;
+}
+
 /**
  * 判斷賽局是否已結算計分（歷史賽局）：
  * - 已標記 settled === true
  * - 舊版未含 settled 欄位的測試賽局若已有 testResults 亦視為已結算
- * （正式賽局與即時模擬賽局在開票過程中會持續更新，需由管理員手動結算封存後才成為歷史賽局）
+ * （未結算賽局在開票過程中可持續更新，需由管理員手動結算封存後才成為歷史賽局）
  */
 export function isGameSettled(game) {
   if (!game) return false;
@@ -126,7 +174,7 @@ export const CONSTITUENCIES = [
 /**
  * 計算單一選區得分：
  * - 縣市長（type: "mayor"，滿分 100 分）：
- *   1. 猜中當選人：+40 分，並加計得票率精準度 max(0, 60 - |預測得票率 - 實際當選人得票率| * 2)
+ *   1. 猜中當選人：+40 分，並加計得票率精準度 max(0, 60 - |預測得票率 - 實際當選人得票率| * 4)
  *   2. 未猜中當選人：直接 0 分（不計得票率精準度分數）
  * - 特別題（type: "yesno"，滿分 60 分）：
  *   預測成功（猜中會不會當選）：+60 分
@@ -166,7 +214,7 @@ export function calculateCityScore(constituency, predictionCity, actualCity) {
   }
 
   const winnerPoints = 40;
-  const accuracyPoints = Number(Math.max(0, 60 - diff * 2).toFixed(1));
+  const accuracyPoints = Number(Math.max(0, 60 - diff * 4).toFixed(1));
   const totalPoints = Number((winnerPoints + accuracyPoints).toFixed(1));
 
   return {
