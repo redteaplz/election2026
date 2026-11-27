@@ -1459,3 +1459,44 @@ dialog::backdrop {
   color: var(--brothers-yellow);
   vertical-align: middle;
 }
+
+/* Prominent Scoring Formula Highlight */
+.formula-highlight {
+  margin-block-start: 0.45rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 10px;
+  background: #ffffff;
+  border: 2px solid var(--accent-gold);
+  color: var(--brothers-navy);
+  font-weight: 800;
+  font-size: 1rem;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  box-shadow: 0 2px 6px rgb(229 184 0 / 0.16);
+}
+
+.formula-highlight code {
+  background: var(--brothers-yellow-soft);
+  border: 1px solid #ecd56e;
+  color: #162032;
+  font-size: 1.05em;
+  font-weight: 900;
+  padding: 0.15rem 0.5rem;
+  border-radius: 6px;
+}
+
+/* Player Count Pill */
+.player-count-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  white-space: nowrap;
+}

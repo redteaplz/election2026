@@ -42,8 +42,8 @@ export function getGameResultSource(game) {
 }
 
 export function getResultSourceLabel(source) {
-  if (source === RESULT_SOURCES.OFFICIAL_DB) return "Firebase 中選會正式開票";
-  if (source === RESULT_SOURCES.SIM_DB) return "Firebase 模擬開票";
+  if (source === RESULT_SOURCES.OFFICIAL_DB) return "中選會正式開票";
+  if (source === RESULT_SOURCES.SIM_DB) return "模擬開票";
   return "純手動開票";
 }
 

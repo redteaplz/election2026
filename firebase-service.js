@@ -271,6 +271,27 @@ export function subscribeGamePredictions(gameId, callback) {
 }
 
 /**
+ * 取得指定賽局目前已完成預測的玩家人數（供賽局大廳顯示）
+ */
+export async function fetchGamePredictionCount(gameId) {
+  if (!gameId) return 0;
+
+  if (mode === "firebase" && db && firestoreApi) {
+    try {
+      const { collection, getCountFromServer } = firestoreApi;
+      const snap = await getCountFromServer(collection(db, "games", gameId, "predictions"));
+      return Number(snap.data().count || 0);
+    } catch (err) {
+      console.warn("取得賽局玩家人數失敗：", gameId, err);
+      return null;
+    }
+  }
+
+  const predsMap = readLocalPredictionsMap();
+  return (predsMap[gameId] || []).length;
+}
+
+/**
  * 儲存單一賽局的手動開票結果（支援僅更新暫存或結算為歷史賽局）
  */
 export async function saveTestGameResults(gameId, cities, { settle = true, extraMeta = {} } = {}) {
