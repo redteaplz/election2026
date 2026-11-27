@@ -1619,13 +1619,27 @@ function renderLeaderboard() {
     const detailBtn = document.createElement("button");
     detailBtn.type = "button";
     detailBtn.className = "btn btn-sm btn-secondary";
-    detailBtn.textContent = "查看明細";
-    detailBtn.addEventListener("click", () => openPlayerDetail(pred, summary));
+
+    const canViewDetail = canViewPlayerDetail(game, isSelf);
+    if (canViewDetail) {
+      detailBtn.textContent = "查看明細";
+      detailBtn.addEventListener("click", () => openPlayerDetail(pred, summary, isSelf));
+    } else {
+      detailBtn.textContent = "開票後公開";
+      detailBtn.disabled = true;
+      detailBtn.title = `為避免作弊，正式賽局於 ${formatLockTime(game?.lockAt)} 鎖單開票後才可檢視他人預測明細`;
+    }
     actionWrap.appendChild(detailBtn);
 
     li.append(rankEl, playerEl, barArea, actionWrap);
     leaderboardList.appendChild(li);
   });
+}
+
+function canViewPlayerDetail(game, isSelf) {
+  if (isSelf) return true;
+  if (!game || game.type !== "official") return true;
+  return isGameSettled(game) || isGameLocked(game);
 }
 
 // 7. Dialogs
@@ -1653,7 +1667,11 @@ function getCandidateName(city, candId) {
   return city.candidates.find((c) => c.id === candId)?.name ?? "未選擇";
 }
 
-function openPlayerDetail(pred, summary) {
+function openPlayerDetail(pred, summary, isSelf = false) {
+  const game = getActiveGame();
+  if (!canViewPlayerDetail(game, isSelf)) {
+    return;
+  }
   const activeResults = getActiveGameResults();
   detailDialogTitle.textContent = `${pred.nickname} 的預測明細（總分：${summary.totalScore} 分）`;
   detailDialogBody.replaceChildren();
