@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>2026 九合一選舉預測大賽｜賽局對決</title>
+  <title>2026 九合一選舉預測</title>
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -11,8 +11,7 @@
     <div class="container header-inner">
       <div class="header-title">
         <p class="eyebrow">2026 TAIWAN LOCAL ELECTIONS</p>
-        <h1>2026 九合一選舉預測大賽</h1>
-        <p class="subtitle">選出你預測的當選人並填寫得票率，誤差越小分數越高！</p>
+        <h1>2026 九合一選舉預測</h1>
       </div>
       <div class="header-actions">
         <span id="storage-badge" class="badge badge-local" aria-live="polite" hidden>連線偵測中...</span>
@@ -45,6 +44,7 @@
         <span id="active-game-type-badge" class="game-pill"></span>
         <strong id="active-game-title"></strong>
         <span id="active-game-lock-badge" class="lock-pill"></span>
+        <span id="active-game-players-badge" class="player-count-pill"></span>
       </div>
       <div class="active-game-actions">
         <button type="button" id="copy-game-link-btn" class="btn btn-sm btn-secondary">複製賽局連結</button>
@@ -59,9 +59,12 @@
       <div class="rules-card" aria-labelledby="rules-heading">
         <h2 id="rules-heading">計分規則</h2>
         <ul class="rules-list">
-          <li><strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 4</code>，誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。</li>
+          <li>
+            <strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。
+            <div class="formula-highlight">精準度公式：<code>60 - |預測得票率 - 實際得票率| × 4</code></div>
+          </li>
           <li><strong>桃園區議員特別題（滿分 60 分）</strong>：預測 12 號「王妃」會不會當選，預測成功即 <strong>+60 分</strong>。</li>
-          <li><strong>鎖單與歷史賽局規則</strong>：<strong>正式賽局</strong>將於截止時間（預設 <strong>2026/11/28 16:00</strong>）自動鎖單，並於鎖單後開始連接 Firebase 開票資料；<strong>測試賽局</strong>不限時。任一賽局經結算計分後即成為<strong>歷史賽局</strong>，不可再新增預測或重新結算，但可隨時檢視賽局與分數。</li>
+          <li><strong>鎖單與歷史賽局規則</strong>：<strong>正式賽局</strong>將於截止時間（預設 <strong>2026/11/28 16:00</strong>）自動鎖單，並於鎖單後開始同步開票資料；<strong>測試賽局</strong>不限時。任一賽局經結算計分後即成為<strong>歷史賽局</strong>，不可再新增預測或重新結算，但可隨時檢視賽局與分數。</li>
         </ul>
       </div>
 
@@ -78,7 +81,7 @@
                 name="title"
                 required
                 maxlength="40"
-                placeholder="例：2026 九合一正式大賽"
+                placeholder="例：2026 九合一正式場"
               >
             </div>
 
@@ -160,12 +163,16 @@
           <h2 id="predict-heading">填寫你的 2026 選舉預測</h2>
           <p class="section-desc">點選你認為會當選的候選人，並填寫預估當選得票率。</p>
         </div>
+        <span id="predict-players-badge" class="player-count-pill">目前 0 位玩家完成預測</span>
       </div>
 
       <div class="rules-card" aria-labelledby="predict-rules-heading">
         <h3 id="predict-rules-heading">計分規則與得票率說明</h3>
         <ul class="rules-list">
-          <li><strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（公式：<code>60 - |預測得票率 - 實際得票率| × 4</code>，誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。</li>
+          <li>
+            <strong>縣市長（每區滿分 100 分）</strong>：猜中當選人 <strong>+40 分</strong>，並加計得票率精準度最高 <strong>+60 分</strong>（誤差越小分數越高）；<strong>若候選人預測錯誤，該區直接 0 分</strong>。
+            <div class="formula-highlight">精準度公式：<code>60 - |預測得票率 - 實際得票率| × 4</code></div>
+          </li>
           <li><strong>桃園區議員特別題（滿分 60 分）</strong>：預測 12 號「王妃」是否會進入該選區前 12 高得票率當選，預測成功即 <strong>+60 分</strong>。</li>
           <li><strong>什麼是「得票率」？</strong>：<code>候選人得票數 ÷ 該選區總有效票數 × 100%</code>（所有候選人得票率加總為 100%）。例如某市有效票 100 萬票、A 候選人拿 48 萬票，得票率即為 <strong>48%</strong>；若該區有多位主要候選人分票，當選得票率也可能低於 50%。</li>
         </ul>
@@ -291,8 +298,8 @@
 
   <footer class="site-footer">
     <div class="container">
-      <span>2026 九合一選舉預測大賽</span>
-      <span class="version-tag">版本：v1.5.2</span>
+      <span>2026 九合一選舉預測</span>
+      <span class="version-tag">版本：v1.5.3</span>
     </div>
   </footer>
 

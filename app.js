@@ -23,6 +23,7 @@ import {
   normalizeNicknameId,
   saveGamePrediction,
   subscribeGamePredictions,
+  fetchGamePredictionCount,
   saveTestGameResults,
   settleOfficialGame,
   subscribeOfficialResults,
@@ -52,6 +53,7 @@ function getSavedNickname() {
 // App state
 let storageMode = "local";
 let allGames = [];
+let gamePredictionCounts = {};
 let activeGameId = null;
 let currentPredictions = [];
 let predictionsLoaded = false;
@@ -91,6 +93,7 @@ const activeGameBar = document.getElementById("active-game-bar");
 const activeGameTypeBadge = document.getElementById("active-game-type-badge");
 const activeGameTitle = document.getElementById("active-game-title");
 const activeGameLockBadge = document.getElementById("active-game-lock-badge");
+const activeGamePlayersBadge = document.getElementById("active-game-players-badge");
 const copyGameLinkBtn = document.getElementById("copy-game-link-btn");
 const backToLobbyBtn = document.getElementById("back-to-lobby-btn");
 
@@ -107,6 +110,7 @@ const historyGamesGrid = document.getElementById("history-games-grid");
 
 // Predict form
 const lockNoticeBanner = document.getElementById("lock-notice-banner");
+const predictPlayersBadge = document.getElementById("predict-players-badge");
 const predictForm = document.getElementById("predict-form");
 const nicknameInput = document.getElementById("player-nickname");
 const nicknameError = document.getElementById("nickname-error");
@@ -278,6 +282,7 @@ async function bootstrap() {
       allGames = list;
       syncLiveResultSubscriptions();
       renderLobby();
+      refreshLobbyPredictionCounts(list);
 
       if (!handledInitialRoute && initialGameId) {
         handledInitialRoute = true;
@@ -302,7 +307,9 @@ async function bootstrap() {
       gamesListGrid.replaceChildren();
       const errCard = document.createElement("div");
       errCard.className = "empty-lobby-card";
-      errCard.textContent = `無法讀取賽局列表（${err.code || err.message}），請檢查 Firestore Rules 或 API Key 網域限制。`;
+      errCard.textContent = isAuthorizedAdmin
+        ? `無法讀取賽局列表（${err.code || err.message}），請檢查 Firestore Rules 或 API Key 網域限制。`
+        : "無法讀取賽局列表，請稍後重新整理再試。";
       gamesListGrid.appendChild(errCard);
     }
   );
@@ -456,6 +463,8 @@ function enterGame(gameId, defaultView = "predict") {
   unsubscribePredictions = subscribeGamePredictions(gameId, (list) => {
     currentPredictions = list;
     predictionsLoaded = true;
+    gamePredictionCounts[gameId] = list.length;
+    updatePlayerCountBadges();
     if (!isPredictFormDirty) {
       const myPred = findMyPrediction(list);
       if (myPred) {
@@ -506,6 +515,37 @@ function leaveGame() {
   switchView("lobby");
 }
 
+async function refreshLobbyPredictionCounts(games) {
+  if (!Array.isArray(games) || games.length === 0) return;
+  let changed = false;
+  await Promise.all(
+    games.map(async (g) => {
+      const count = await fetchGamePredictionCount(g.id);
+      if (typeof count === "number" && gamePredictionCounts[g.id] !== count) {
+        gamePredictionCounts[g.id] = count;
+        changed = true;
+      }
+    })
+  );
+  if (changed) {
+    renderLobby();
+    updatePlayerCountBadges();
+  }
+}
+
+function updatePlayerCountBadges() {
+  const count =
+    activeGameId && typeof gamePredictionCounts[activeGameId] === "number"
+      ? gamePredictionCounts[activeGameId]
+      : currentPredictions.length;
+  if (activeGamePlayersBadge) {
+    activeGamePlayersBadge.textContent = `已有 ${count} 位玩家預測`;
+  }
+  if (predictPlayersBadge) {
+    predictPlayersBadge.textContent = `目前已有 ${count} 位玩家完成預測`;
+  }
+}
+
 function updateActiveGameUI() {
   const game = getActiveGame();
   if (!game) return;
@@ -521,6 +561,7 @@ function updateActiveGameUI() {
   activeGameTitle.textContent = game.title;
   activeGameTypeBadge.textContent = isOfficial ? "正式賽局" : "測試賽局";
   activeGameTypeBadge.className = `game-pill ${isOfficial ? "game-pill-official" : "game-pill-test"}`;
+  updatePlayerCountBadges();
 
   if (settled) {
     activeGameLockBadge.textContent = "歷史賽局・已結算";
@@ -539,7 +580,7 @@ function updateActiveGameUI() {
   } else if (source === RESULT_SOURCES.SIM_DB) {
     const pct = simulatedResults?.countingProgress;
     activeGameLockBadge.textContent =
-      typeof pct === "number" ? `模擬開票連線中（${pct}%）` : "Firebase 模擬開票連線中";
+      typeof pct === "number" ? `模擬開票連線中（${pct}%）` : "模擬開票連線中";
     activeGameLockBadge.className = "lock-pill lock-pill-sim";
   } else if (source === RESULT_SOURCES.OFFICIAL_DB) {
     activeGameLockBadge.textContent = "測試賽局（同步中選會開票）";
@@ -682,7 +723,12 @@ function createGameCard(game) {
     lockPill.textContent = "純手動・不鎖單";
   }
 
-  badges.append(typePill, lockPill);
+  const countPill = document.createElement("span");
+  countPill.className = "player-count-pill";
+  const count = gamePredictionCounts[game.id];
+  countPill.textContent = typeof count === "number" ? `已有 ${count} 位玩家預測` : "計算人數中...";
+
+  badges.append(typePill, lockPill, countPill);
 
   const title = document.createElement("h3");
   title.className = "game-card-title";
@@ -1280,7 +1326,7 @@ function renderLiveResultsPanel(game, activeResults) {
     liveIndicatorText.textContent = "手動開票模式";
   } else {
     liveIndicator.classList.remove("is-settled");
-    liveIndicatorText.textContent = storageMode === "firebase" ? "Firebase 即時同步中" : "本機即時同步中";
+    liveIndicatorText.textContent = "即時同步中";
   }
 
   if (!game) {
@@ -1288,7 +1334,7 @@ function renderLiveResultsPanel(game, activeResults) {
   } else if (isSettled) {
     liveSourceLabel.textContent = "資料來源：歷史結算快照";
   } else if (activeResults?.isManualOverride) {
-    liveSourceLabel.textContent = `資料來源：管理員手動輸入（原設定：${getResultSourceLabel(source)}）`;
+    liveSourceLabel.textContent = `資料來源：手動輸入（原設定：${getResultSourceLabel(source)}）`;
   } else if (waitingForLock) {
     liveSourceLabel.textContent = `將於 ${formatLockTime(game.lockAt)} 鎖單後自動連接 ${getResultSourceLabel(source)}`;
   } else {
